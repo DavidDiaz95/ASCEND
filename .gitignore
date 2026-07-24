@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Variables de entorno / secretos
+.env
+.env.*
+!.env.example
+*.env
+
 # C extensions
 *.so
 
