@@ -386,9 +386,11 @@ with st.form("formulario_perfil"):
             # RESERVADO: mientras no exista pipeline_clasificacion.py o los
             # .joblib no estén copiados al repo, el perfil se guarda igual
             # y la clasificación se hace en cuanto conectes esa pieza.
+            print(f"[ASCEND][clasificacion][ERROR] usuario={st.session_state['username']} tipo={type(e).__name__} detalle={e}")
             st.info(
                 "Tu perfil quedó guardado. La personalización automática por "
                 "clúster se activará en cuanto conectemos el modelo (pendiente)."
             )
         except Exception as e:
+            print(f"[ASCEND][clasificacion][ERROR] usuario={st.session_state['username']} tipo={type(e).__name__} detalle={e}")
             st.warning(f"Perfil guardado, pero hubo un problema al clasificar: {e}")

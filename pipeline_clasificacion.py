@@ -25,8 +25,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATHS = {
-    "F": BASE_DIR / "../Models/clasificador_restringido_F.joblib",
-    "M": BASE_DIR / "../Models/clasificador_restringido_M.joblib",
+    "F": BASE_DIR / "Models" / "clasificador_restringido_F.joblib",
+    "M": BASE_DIR / "Models" / "clasificador_restringido_M.joblib",
 }
 
 NOMBRES_CLUSTER = {
