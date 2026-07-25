@@ -1,6 +1,6 @@
 import streamlit as st
 
-from utils_db import obtener_xp_total, obtener_historial_rutinas, obtener_perfil
+from utils_db import obtener_xp_total, obtener_historial_rutinas, obtener_perfil, obtener_clasificacion
 
 st.set_page_config(page_title="ASCEND — Mi Progreso", page_icon="📈")
 
@@ -13,6 +13,21 @@ if not st.session_state.get("usuario_id"):
 usuario_id = st.session_state["usuario_id"]
 
 st.title("📈 Mi Progreso")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEMPORAL — DEBUG DE CLASIFICACIÓN. Quitar este bloque antes de producción;
+# es solo para verificar a simple vista qué cluster está usando el motor de
+# recomendación mientras se ajusta (mismo dato que imprime "tu cluster es
+# ..." en la consola del servidor).
+# ═══════════════════════════════════════════════════════════════════════════
+with st.expander("🐛 [TEMPORAL] Debug de clasificación — quitar antes de producción"):
+    clasificacion = obtener_clasificacion(usuario_id)
+    if clasificacion:
+        st.write(f"**Cluster:** {clasificacion['nivel_cluster_nombre']} (id interno: {clasificacion['nivel_cluster']})")
+        st.write(f"**Modelo usado:** {clasificacion.get('modelo_usado')}")
+        st.json(clasificacion)
+    else:
+        st.warning("Este usuario todavía no tiene una clasificación guardada.")
 
 col_xp, col_perfil = st.columns(2)
 with col_xp:

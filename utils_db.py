@@ -136,6 +136,23 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN zonas_json TEXT")
     if "objetivo" not in columnas_interacciones:
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN objetivo TEXT")
+    if "feedback_dificultad" not in columnas_interacciones:
+        # 'facil' | 'bien' | 'dificil' — lo que el usuario reporta al
+        # terminar. Alimenta calcular_ajuste_por_feedback() en
+        # utils_rutinas.py para la SIGUIENTE recomendación.
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN feedback_dificultad TEXT")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rutina_personalizada (
+            usuario_id      TEXT PRIMARY KEY,
+            nombre          TEXT NOT NULL,
+            ejercicios_json TEXT NOT NULL,
+            actualizado_en  TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id)
+        )
+        """
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +307,7 @@ def registrar_interaccion_rutina(
     n_ejercicios: int | None = None,
     zonas_json: dict | None = None,
     objetivo: str | None = None,
+    feedback_dificultad: str | None = None,
 ) -> None:
     import json
 
@@ -298,13 +316,13 @@ def registrar_interaccion_rutina(
             """
             INSERT INTO interacciones_rutinas
                 (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
-                 n_ejercicios, zonas_json, objetivo)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 n_ejercicios, zonas_json, objetivo, feedback_dificultad)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
                 n_ejercicios, json.dumps(zonas_json) if zonas_json is not None else None,
-                objetivo,
+                objetivo, feedback_dificultad,
             ),
         )
 
@@ -358,6 +376,48 @@ def obtener_equipo_usuario(usuario_id: str) -> list[str]:
         return json.loads(fila["equipo_json"]) if fila else []
 
 
+# ---------------------------------------------------------------------------
+# RUTINA PERSONALIZADA — UNA sola por usuario (usuario_id es la llave
+# primaria de la tabla), a propósito: guardar_rutina_personalizada siempre
+# sobreescribe la anterior, así que nunca se acumulan mil rutinas por
+# usuario. Si quiere "otra", en realidad está editando la única que tiene.
+# ---------------------------------------------------------------------------
+def guardar_rutina_personalizada(usuario_id: str, nombre: str, ejercicios: list[dict]) -> None:
+    import json
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO rutina_personalizada (usuario_id, nombre, ejercicios_json, actualizado_en)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(usuario_id) DO UPDATE SET
+                nombre = excluded.nombre,
+                ejercicios_json = excluded.ejercicios_json,
+                actualizado_en = datetime('now')
+            """,
+            (usuario_id, nombre, json.dumps(ejercicios)),
+        )
+
+
+def obtener_rutina_personalizada(usuario_id: str) -> dict | None:
+    import json
+
+    with get_connection() as conn:
+        fila = conn.execute(
+            "SELECT * FROM rutina_personalizada WHERE usuario_id = ?", (usuario_id,)
+        ).fetchone()
+        if fila is None:
+            return None
+        resultado = dict(fila)
+        resultado["ejercicios"] = json.loads(resultado["ejercicios_json"])
+        return resultado
+
+
+def eliminar_rutina_personalizada(usuario_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM rutina_personalizada WHERE usuario_id = ?", (usuario_id,))
+
+
 def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
     import json
 
@@ -365,7 +425,7 @@ def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
         filas = conn.execute(
             """
             SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, n_ejercicios,
-                   zonas_json, objetivo, completado_en
+                   zonas_json, objetivo, feedback_dificultad, completado_en
             FROM interacciones_rutinas
             WHERE usuario_id = ? ORDER BY completado_en DESC LIMIT ?
             """,

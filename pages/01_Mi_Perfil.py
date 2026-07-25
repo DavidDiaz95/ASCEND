@@ -369,8 +369,8 @@ with st.form("formulario_perfil"):
             resultado = clasificar_usuario(perfil)
             guardar_clasificacion(usuario_id, resultado)
             # Debug de servidor — NUNCA se muestra en la UI, solo en la
-            # terminal donde corre `streamlit run`, para que puedas verificar
-            # que el clasificador está asignando clusters razonables.
+            # terminal donde corre `streamlit run`.
+            print(f"tu cluster es {resultado['nivel_cluster_nombre']}")
             print(
                 f"[ASCEND][clasificacion] usuario={st.session_state['username']} "
                 f"genero={resultado['gender_code']} "
