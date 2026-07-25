@@ -127,6 +127,15 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         # trae XP, no dificultad, y no se puede calcular hacia dónde va
         # progresando el usuario en términos de exigencia real.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN dificultad_promedio_rutina REAL")
+    if "n_ejercicios" not in columnas_interacciones:
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN n_ejercicios INTEGER")
+    if "zonas_json" not in columnas_interacciones:
+        # dict zona_muscular -> cuántos ejercicios de esa zona trajo la
+        # rutina. Es la pieza que le falta al dashboard y al balanceador
+        # de zonas musculares del recomendador.
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN zonas_json TEXT")
+    if "objetivo" not in columnas_interacciones:
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN objetivo TEXT")
 
 
 # ---------------------------------------------------------------------------
@@ -278,14 +287,25 @@ def obtener_clasificacion(usuario_id: str) -> dict | None:
 def registrar_interaccion_rutina(
     usuario_id: str, rutina_id: str, xp_ganado: int,
     dificultad_promedio_rutina: float | None = None,
+    n_ejercicios: int | None = None,
+    zonas_json: dict | None = None,
+    objetivo: str | None = None,
 ) -> None:
+    import json
+
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO interacciones_rutinas (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO interacciones_rutinas
+                (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
+                 n_ejercicios, zonas_json, objetivo)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina),
+            (
+                usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
+                n_ejercicios, json.dumps(zonas_json) if zonas_json is not None else None,
+                objetivo,
+            ),
         )
 
 
@@ -339,13 +359,43 @@ def obtener_equipo_usuario(usuario_id: str) -> list[str]:
 
 
 def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
+    import json
+
     with get_connection() as conn:
         filas = conn.execute(
             """
-            SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, completado_en
+            SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, n_ejercicios,
+                   zonas_json, objetivo, completado_en
             FROM interacciones_rutinas
             WHERE usuario_id = ? ORDER BY completado_en DESC LIMIT ?
             """,
             (usuario_id, limite),
         ).fetchall()
-        return [dict(f) for f in filas]
+        historial = [dict(f) for f in filas]
+        for h in historial:
+            h["zonas_json"] = json.loads(h["zonas_json"]) if h.get("zonas_json") else {}
+        return historial
+
+
+def obtener_frecuencia_zonas_reciente(usuario_id: str, dias: int = 21) -> dict:
+    """Cuántos ejercicios de cada zona muscular hizo el usuario en los
+    últimos `dias` días. Es la entrada del balanceador de zonas del
+    recomendador — sin esto, el motor solo sigue el objetivo declarado y
+    puede sobre-entrenar la misma zona una y otra vez."""
+    import json
+    from collections import Counter
+
+    with get_connection() as conn:
+        filas = conn.execute(
+            """
+            SELECT zonas_json FROM interacciones_rutinas
+            WHERE usuario_id = ? AND zonas_json IS NOT NULL
+              AND datetime(completado_en) >= datetime('now', ?)
+            """,
+            (usuario_id, f"-{dias} days"),
+        ).fetchall()
+
+    frecuencia = Counter()
+    for fila in filas:
+        frecuencia.update(json.loads(fila["zonas_json"]))
+    return dict(frecuencia)

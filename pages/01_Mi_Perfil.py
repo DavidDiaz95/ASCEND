@@ -273,7 +273,6 @@ with col_timer:
     st.write("Ponte de pie, prepárate, y salta hacia adelante lo más lejos que puedas. Mide la distancia con una cinta métrica.")
     components.html(cronometro_html("preparacion"), height=130)
 
-# DESPUÉS
 valor_default_salto = int(perfil_existente["standing_long_jump_cm"]) if perfil_existente else 150
 standing_long_jump_cm = st.number_input(
     "Distancia saltada (cm):", min_value=50, max_value=350, value=valor_default_salto, step=1, key="jump_input",
@@ -291,8 +290,7 @@ with col_gif:
 with col_timer:
     st.write("Siéntate con las piernas extendidas y estira los brazos hacia tus pies lo más que puedas.")
     components.html(cronometro_html("preparacion"), height=130)
-    
-# DESPUÉS
+
 valor_default_reach = int(perfil_existente["sit_and_reach_cm"]) if perfil_existente else 10
 sit_and_reach_cm = st.number_input(
     "¿Cuánto rebasaste (+) o te faltó (-) para tocar tus pies? (cm):",
@@ -370,6 +368,17 @@ with st.form("formulario_perfil"):
 
             resultado = clasificar_usuario(perfil)
             guardar_clasificacion(usuario_id, resultado)
+            # Debug de servidor — NUNCA se muestra en la UI, solo en la
+            # terminal donde corre `streamlit run`, para que puedas verificar
+            # que el clasificador está asignando clusters razonables.
+            print(
+                f"[ASCEND][clasificacion] usuario={st.session_state['username']} "
+                f"genero={resultado['gender_code']} "
+                f"cluster={resultado['nivel_cluster']} "
+                f"nombre='{resultado['nivel_cluster_nombre']}' "
+                f"modelo={resultado.get('modelo_usado')} "
+                f"probas={resultado.get('probabilidades')}"
+            )
             # Nota: a propósito NO mostramos nivel_cluster_nombre aquí — es
             # dato interno. El usuario solo debe ver progreso vía XP.
             st.toast("Tu plan ya está personalizado con tus resultados 💪")
