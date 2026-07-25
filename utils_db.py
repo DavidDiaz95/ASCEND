@@ -113,11 +113,20 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
     previas de ascend.db, sin perder los datos que ya tenías guardados.
     Cada vez que agregues un campo nuevo a una tabla existente, se declara
     aquí en vez de romper el CREATE TABLE IF NOT EXISTS de arriba."""
-    columnas_actuales = {
+    columnas_perfiles = {
         fila["name"] for fila in conn.execute("PRAGMA table_info(perfiles)").fetchall()
     }
-    if "objetivo" not in columnas_actuales:
+    if "objetivo" not in columnas_perfiles:
         conn.execute("ALTER TABLE perfiles ADD COLUMN objetivo TEXT")
+
+    columnas_interacciones = {
+        fila["name"] for fila in conn.execute("PRAGMA table_info(interacciones_rutinas)").fetchall()
+    }
+    if "dificultad_promedio_rutina" not in columnas_interacciones:
+        # Necesaria para el "nivel dinámico": sin esto, el historial solo
+        # trae XP, no dificultad, y no se puede calcular hacia dónde va
+        # progresando el usuario en términos de exigencia real.
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN dificultad_promedio_rutina REAL")
 
 
 # ---------------------------------------------------------------------------
@@ -266,11 +275,17 @@ def obtener_clasificacion(usuario_id: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # INTERACCIONES — rutinas y nutrición (alimentan el XP visible y el dashboard)
 # ---------------------------------------------------------------------------
-def registrar_interaccion_rutina(usuario_id: str, rutina_id: str, xp_ganado: int) -> None:
+def registrar_interaccion_rutina(
+    usuario_id: str, rutina_id: str, xp_ganado: int,
+    dificultad_promedio_rutina: float | None = None,
+) -> None:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO interacciones_rutinas (usuario_id, rutina_id, xp_ganado) VALUES (?, ?, ?)",
-            (usuario_id, rutina_id, xp_ganado),
+            """
+            INSERT INTO interacciones_rutinas (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina)
+            VALUES (?, ?, ?, ?)
+            """,
+            (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina),
         )
 
 
@@ -327,7 +342,8 @@ def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
     with get_connection() as conn:
         filas = conn.execute(
             """
-            SELECT rutina_id, xp_ganado, completado_en FROM interacciones_rutinas
+            SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, completado_en
+            FROM interacciones_rutinas
             WHERE usuario_id = ? ORDER BY completado_en DESC LIMIT ?
             """,
             (usuario_id, limite),

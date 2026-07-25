@@ -273,7 +273,8 @@ with col_timer:
     st.write("Ponte de pie, prepárate, y salta hacia adelante lo más lejos que puedas. Mide la distancia con una cinta métrica.")
     components.html(cronometro_html("preparacion"), height=130)
 
-valor_default_salto = perfil_existente["standing_long_jump_cm"] if perfil_existente else 150
+# DESPUÉS
+valor_default_salto = int(perfil_existente["standing_long_jump_cm"]) if perfil_existente else 150
 standing_long_jump_cm = st.number_input(
     "Distancia saltada (cm):", min_value=50, max_value=350, value=valor_default_salto, step=1, key="jump_input",
 )
@@ -290,8 +291,9 @@ with col_gif:
 with col_timer:
     st.write("Siéntate con las piernas extendidas y estira los brazos hacia tus pies lo más que puedas.")
     components.html(cronometro_html("preparacion"), height=130)
-
-valor_default_reach = perfil_existente["sit_and_reach_cm"] if perfil_existente else 10
+    
+# DESPUÉS
+valor_default_reach = int(perfil_existente["sit_and_reach_cm"]) if perfil_existente else 10
 sit_and_reach_cm = st.number_input(
     "¿Cuánto rebasaste (+) o te faltó (-) para tocar tus pies? (cm):",
     min_value=-20, max_value=45, value=valor_default_reach, step=1, key="reach_input",
