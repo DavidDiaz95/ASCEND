@@ -5,8 +5,19 @@ from dotenv import load_dotenv
 import streamlit as st
 from openai import OpenAI
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 RUTA_LOGOS = BASE_DIR / "Logos"
+
+st.set_page_config(page_title="ASCEND — Asistente", page_icon=str(RUTA_LOGOS / "ascend-icon.png"))
+
+# ---------------------------------------------------------------------------
+# GUARDIA — mismo patrón que las demás páginas bloqueadas.
+# ---------------------------------------------------------------------------
+if not st.session_state.get("usuario_id"):
+    st.warning("Necesitas iniciar sesión para hablar con el asistente de ASCEND.")
+    if st.button("Ir a Mi Perfil"):
+        st.switch_page("pages/01_Mi_Perfil.py")
+    st.stop()
 
 load_dotenv(BASE_DIR / ".env", override=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -28,18 +39,6 @@ Reglas importantes:
   de salud), recomienda consultar a un profesional en vez de dar diagnóstico.
 """
 
-# ---------------------------------------------------------------------------
-# CONFIGURACIÓN DE PÁGINA — título de pestaña, ícono, layout
-# ---------------------------------------------------------------------------
-st.set_page_config(
-    page_title="ASCEND",
-    page_icon=str(RUTA_LOGOS / "ascend-icon.png"),
-    layout="centered",
-)
-
-# ---------------------------------------------------------------------------
-# ENCABEZADO CON LOGO — centrado usando columnas
-# ---------------------------------------------------------------------------
 col_izq, col_centro, col_der = st.columns([1, 2, 1])
 with col_centro:
     st.image(str(RUTA_LOGOS / "ascend-logo-stacked.png"), use_container_width=True)
@@ -47,9 +46,6 @@ with col_centro:
 st.markdown("<p style='text-align: center; color: #141d16;'>Tu asistente de entrenamiento y nutrición</p>", unsafe_allow_html=True)
 st.divider()
 
-# ---------------------------------------------------------------------------
-# CHAT
-# ---------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant", "content": "¡Hola! Soy tu asistente de ASCEND 💪 ¿En qué te ayudo hoy — dudas de tu rutina, tu alimentación, o quieres ajustar tu objetivo?"}
@@ -57,7 +53,7 @@ if "messages" not in st.session_state:
 
 avatares = {
     "assistant": str(RUTA_LOGOS / "ascend-icon.png"),
-    "user": None,  # usa el ícono por default de Streamlit para el usuario
+    "user": None,
 }
 
 for msg in st.session_state.messages:
@@ -81,3 +77,13 @@ if prompt := st.chat_input("Escribe tu mensaje aquí..."):
         response = st.write_stream(stream)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RESERVADO — EN DESARROLLO
+# ═══════════════════════════════════════════════════════════════════════════
+# Pendiente: darle al asistente contexto real del usuario (perfil, XP,
+# nivel_cluster de forma indirecta) inyectándolo al SYSTEM_PROMPT o como un
+# mensaje de sistema adicional armado con utils_db.obtener_perfil(usuario_id)
+# y utils_db.obtener_xp_total(usuario_id), para que las respuestas dejen de
+# ser genéricas y hablen de la rutina/nutrición real del usuario.
+# ═══════════════════════════════════════════════════════════════════════════
