@@ -273,8 +273,7 @@ with col_timer:
     st.write("Ponte de pie, prepárate, y salta hacia adelante lo más lejos que puedas. Mide la distancia con una cinta métrica.")
     components.html(cronometro_html("preparacion"), height=130)
 
-# DESPUÉS
-valor_default_salto = int(perfil_existente["standing_long_jump_cm"]) if perfil_existente else 150
+valor_default_salto = perfil_existente["standing_long_jump_cm"] if perfil_existente else 150
 standing_long_jump_cm = st.number_input(
     "Distancia saltada (cm):", min_value=50, max_value=350, value=valor_default_salto, step=1, key="jump_input",
 )
@@ -292,8 +291,7 @@ with col_timer:
     st.write("Siéntate con las piernas extendidas y estira los brazos hacia tus pies lo más que puedas.")
     components.html(cronometro_html("preparacion"), height=130)
 
-# DESPUÉS
-valor_default_reach = int(perfil_existente["sit_and_reach_cm"]) if perfil_existente else 10
+valor_default_reach = perfil_existente["sit_and_reach_cm"] if perfil_existente else 10
 sit_and_reach_cm = st.number_input(
     "¿Cuánto rebasaste (+) o te faltó (-) para tocar tus pies? (cm):",
     min_value=-20, max_value=45, value=valor_default_reach, step=1, key="reach_input",
@@ -326,6 +324,16 @@ with st.form("formulario_perfil"):
         value=int(perfil_existente["waist_circumference_cm"]) if perfil_existente else 80, step=1,
     )
 
+    from utils_rutinas import OBJETIVOS
+
+    objetivo_default_idx = 0
+    if perfil_existente and perfil_existente.get("objetivo") in OBJETIVOS:
+        objetivo_default_idx = OBJETIVOS.index(perfil_existente["objetivo"])
+    objetivo = st.selectbox(
+        "¿Cuál es tu objetivo principal?", OBJETIVOS, index=objetivo_default_idx,
+        help="Uno solo — esto ajusta el enfoque de tus rutinas y tu plan de nutrición.",
+    )
+
     enviado = st.form_submit_button("Guardar mi perfil", use_container_width=True, type="primary")
 
     if enviado:
@@ -340,6 +348,7 @@ with st.form("formulario_perfil"):
             "cross_situp_count": cross_situp_count,
             "standing_long_jump_cm": standing_long_jump_cm,
             "reaction_time_sec": reaction_time_sec,
+            "objetivo": objetivo,
         }
 
         guardar_perfil(usuario_id, perfil)

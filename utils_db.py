@@ -68,6 +68,13 @@ def init_db() -> None:
                 FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id)
             );
 
+            CREATE TABLE IF NOT EXISTS equipo_usuario (
+                usuario_id      TEXT PRIMARY KEY,
+                equipo_json     TEXT NOT NULL,
+                actualizado_en  TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id)
+            );
+
             CREATE TABLE IF NOT EXISTS clasificaciones (
                 usuario_id           TEXT PRIMARY KEY,
                 gender_code          TEXT NOT NULL,
@@ -98,6 +105,19 @@ def init_db() -> None:
             );
             """
         )
+        _migrar_columnas_faltantes(conn)
+
+
+def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
+    """Agrega columnas nuevas a tablas que ya existían en instalaciones
+    previas de ascend.db, sin perder los datos que ya tenías guardados.
+    Cada vez que agregues un campo nuevo a una tabla existente, se declara
+    aquí en vez de romper el CREATE TABLE IF NOT EXISTS de arriba."""
+    columnas_actuales = {
+        fila["name"] for fila in conn.execute("PRAGMA table_info(perfiles)").fetchall()
+    }
+    if "objetivo" not in columnas_actuales:
+        conn.execute("ALTER TABLE perfiles ADD COLUMN objetivo TEXT")
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +184,8 @@ def guardar_perfil(usuario_id: str, perfil: dict) -> None:
             INSERT INTO perfiles (
                 usuario_id, gender_code, age, height_cm, weight_kg,
                 waist_circumference_cm, sit_and_reach_cm, cross_situp_count,
-                standing_long_jump_cm, reaction_time_sec, actualizado_en
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                standing_long_jump_cm, reaction_time_sec, objetivo, actualizado_en
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(usuario_id) DO UPDATE SET
                 gender_code = excluded.gender_code,
                 age = excluded.age,
@@ -176,6 +196,7 @@ def guardar_perfil(usuario_id: str, perfil: dict) -> None:
                 cross_situp_count = excluded.cross_situp_count,
                 standing_long_jump_cm = excluded.standing_long_jump_cm,
                 reaction_time_sec = excluded.reaction_time_sec,
+                objetivo = excluded.objetivo,
                 actualizado_en = datetime('now')
             """,
             (
@@ -189,6 +210,7 @@ def guardar_perfil(usuario_id: str, perfil: dict) -> None:
                 perfil["cross_situp_count"],
                 perfil["standing_long_jump_cm"],
                 perfil["reaction_time_sec"],
+                perfil.get("objetivo"),
             ),
         )
 
@@ -269,6 +291,36 @@ def obtener_xp_total(usuario_id: str) -> int:
             (usuario_id,),
         ).fetchone()
         return int(fila["xp"])
+
+
+# ---------------------------------------------------------------------------
+# EQUIPO DISPONIBLE — independiente del perfil físico, se actualiza cuando
+# el usuario quiera (ej. compró una barra nueva) sin rehacer los tests.
+# ---------------------------------------------------------------------------
+def guardar_equipo_usuario(usuario_id: str, lista_equipo: list[str]) -> None:
+    import json
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO equipo_usuario (usuario_id, equipo_json, actualizado_en)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(usuario_id) DO UPDATE SET
+                equipo_json = excluded.equipo_json,
+                actualizado_en = datetime('now')
+            """,
+            (usuario_id, json.dumps(lista_equipo)),
+        )
+
+
+def obtener_equipo_usuario(usuario_id: str) -> list[str]:
+    import json
+
+    with get_connection() as conn:
+        fila = conn.execute(
+            "SELECT equipo_json FROM equipo_usuario WHERE usuario_id = ?", (usuario_id,)
+        ).fetchone()
+        return json.loads(fila["equipo_json"]) if fila else []
 
 
 def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
