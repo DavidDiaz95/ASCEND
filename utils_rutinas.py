@@ -77,6 +77,19 @@ def ruta_gif(fila: pd.Series) -> Path:
 LIMITE_SUPERIOR_POR_TIER = {"principiante": 30, "intermedio": 50, "experto": 100}
 
 
+import re
+
+
+def formatear_nombre_ejercicio(nombre: str) -> str:
+    """Nombre listo para mostrar: sin el sufijo '(male)'/'(female)' del
+    catálogo original (viene de cómo se etiquetó la fuente, no aporta nada
+    al usuario) y con la primera letra en mayúscula."""
+    limpio = re.sub(r"\s*\((male|female)\)\s*", "", nombre, flags=re.IGNORECASE).strip()
+    if not limpio:
+        return limpio
+    return limpio[0].upper() + limpio[1:]
+
+
 def clasificar_tier(score_llm: float) -> str:
     """Etiqueta legible (solo para mostrarla al usuario) a partir del
     score_llm continuo — reemplaza por completo a dificultad_final."""
@@ -115,6 +128,7 @@ def filtrar_ejercicios(
 
     df["dificultad_continua"] = _obtener_dificultad_continua(df)
     df["nivel"] = df["dificultad_continua"].map(clasificar_tier)
+    df["nombre_formateado"] = df["name"].map(formatear_nombre_ejercicio)
 
     if dificultad_max:
         tope = LIMITE_SUPERIOR_POR_TIER[dificultad_max]
@@ -450,7 +464,7 @@ def _generar_variante(
     ejercicios_final = []
     for ex in seleccionados:
         ejercicios_final.append({
-            "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
+            "id": ex["id"], "nombre": formatear_nombre_ejercicio(ex["name"]), "zona_muscular": ex["zona_muscular"],
             "equipment": ex["equipment"],
             "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
@@ -634,7 +648,7 @@ def generar_calentamiento(
     calentamiento = []
     for _, ex in muestra.iterrows():
         calentamiento.append({
-            "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
+            "id": ex["id"], "nombre": formatear_nombre_ejercicio(ex["name"]), "zona_muscular": ex["zona_muscular"],
             "equipment": ex["equipment"],
             "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
@@ -654,7 +668,7 @@ def obtener_ejercicio_por_id(ejercicio_id: str) -> dict | None:
         return None
     ex = fila.iloc[0]
     return {
-        "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
+        "id": ex["id"], "nombre": formatear_nombre_ejercicio(ex["name"]), "zona_muscular": ex["zona_muscular"],
         "equipment": ex["equipment"],
         "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
         "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),

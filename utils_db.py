@@ -141,18 +141,69 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         # terminar. Alimenta calcular_ajuste_por_feedback() en
         # utils_rutinas.py para la SIGUIENTE recomendación.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN feedback_dificultad TEXT")
+    if "duracion_segundos" not in columnas_interacciones:
+        # Tiempo real entre "Empezar" y "Terminar rutina" — para el
+        # dashboard de progreso.
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN duracion_segundos INTEGER")
 
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS rutina_personalizada (
-            usuario_id      TEXT PRIMARY KEY,
-            nombre          TEXT NOT NULL,
-            ejercicios_json TEXT NOT NULL,
-            actualizado_en  TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id)
+    _migrar_rutina_personalizada_a_multi_slot(conn)
+
+
+def _migrar_rutina_personalizada_a_multi_slot(conn: sqlite3.Connection) -> None:
+    """
+    La tabla rutina_personalizada empezó con usuario_id como llave primaria
+    (una sola rutina por usuario). Ahora se permiten hasta 3 (un `slot`
+    1/2/3 por usuario). SQLite no permite cambiar la llave primaria de una
+    tabla existente con ALTER TABLE, así que si detectamos el esquema
+    viejo, migramos: creamos la tabla nueva, copiamos lo que hubiera como
+    slot 1, y reemplazamos la vieja.
+    """
+    tabla_existe = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='rutina_personalizada'"
+    ).fetchone()
+
+    if tabla_existe:
+        columnas = {fila["name"] for fila in conn.execute("PRAGMA table_info(rutina_personalizada)").fetchall()}
+        if "slot" in columnas:
+            return  # ya está en el esquema nuevo, nada que hacer
+
+        conn.execute("ALTER TABLE rutina_personalizada RENAME TO rutina_personalizada_legacy")
+        conn.execute(
+            """
+            CREATE TABLE rutina_personalizada (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id      TEXT NOT NULL,
+                slot            INTEGER NOT NULL,
+                nombre          TEXT NOT NULL,
+                ejercicios_json TEXT NOT NULL,
+                actualizado_en  TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id),
+                UNIQUE (usuario_id, slot)
+            )
+            """
         )
-        """
-    )
+        conn.execute(
+            """
+            INSERT INTO rutina_personalizada (usuario_id, slot, nombre, ejercicios_json, actualizado_en)
+            SELECT usuario_id, 1, nombre, ejercicios_json, actualizado_en FROM rutina_personalizada_legacy
+            """
+        )
+        conn.execute("DROP TABLE rutina_personalizada_legacy")
+    else:
+        conn.execute(
+            """
+            CREATE TABLE rutina_personalizada (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id      TEXT NOT NULL,
+                slot            INTEGER NOT NULL,
+                nombre          TEXT NOT NULL,
+                ejercicios_json TEXT NOT NULL,
+                actualizado_en  TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id),
+                UNIQUE (usuario_id, slot)
+            )
+            """
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +359,7 @@ def registrar_interaccion_rutina(
     zonas_json: dict | None = None,
     objetivo: str | None = None,
     feedback_dificultad: str | None = None,
+    duracion_segundos: int | None = None,
 ) -> None:
     import json
 
@@ -316,13 +368,13 @@ def registrar_interaccion_rutina(
             """
             INSERT INTO interacciones_rutinas
                 (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
-                 n_ejercicios, zonas_json, objetivo, feedback_dificultad)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 n_ejercicios, zonas_json, objetivo, feedback_dificultad, duracion_segundos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
                 n_ejercicios, json.dumps(zonas_json) if zonas_json is not None else None,
-                objetivo, feedback_dificultad,
+                objetivo, feedback_dificultad, duracion_segundos,
             ),
         )
 
@@ -377,45 +429,55 @@ def obtener_equipo_usuario(usuario_id: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# RUTINA PERSONALIZADA — UNA sola por usuario (usuario_id es la llave
-# primaria de la tabla), a propósito: guardar_rutina_personalizada siempre
-# sobreescribe la anterior, así que nunca se acumulan mil rutinas por
-# usuario. Si quiere "otra", en realidad está editando la única que tiene.
+# RUTINAS PERSONALIZADAS — hasta 3 por usuario (slot 1, 2 o 3).
+# guardar_rutina_personalizada siempre sobreescribe el slot indicado, así
+# que "regenerar el slot 2" reemplaza esa rutina sin acumular más.
 # ---------------------------------------------------------------------------
-def guardar_rutina_personalizada(usuario_id: str, nombre: str, ejercicios: list[dict]) -> None:
+MAX_RUTINAS_PERSONALIZADAS = 3
+
+
+def guardar_rutina_personalizada(usuario_id: str, slot: int, nombre: str, ejercicios: list[dict]) -> None:
     import json
+
+    if slot not in range(1, MAX_RUTINAS_PERSONALIZADAS + 1):
+        raise ValueError(f"slot debe estar entre 1 y {MAX_RUTINAS_PERSONALIZADAS}, recibido: {slot}")
 
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO rutina_personalizada (usuario_id, nombre, ejercicios_json, actualizado_en)
-            VALUES (?, ?, ?, datetime('now'))
-            ON CONFLICT(usuario_id) DO UPDATE SET
+            INSERT INTO rutina_personalizada (usuario_id, slot, nombre, ejercicios_json, actualizado_en)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(usuario_id, slot) DO UPDATE SET
                 nombre = excluded.nombre,
                 ejercicios_json = excluded.ejercicios_json,
                 actualizado_en = datetime('now')
             """,
-            (usuario_id, nombre, json.dumps(ejercicios)),
+            (usuario_id, slot, nombre, json.dumps(ejercicios)),
         )
 
 
-def obtener_rutina_personalizada(usuario_id: str) -> dict | None:
+def obtener_rutinas_personalizadas(usuario_id: str) -> list[dict]:
+    """Las hasta 3 rutinas personalizadas del usuario, ordenadas por slot."""
     import json
 
     with get_connection() as conn:
-        fila = conn.execute(
-            "SELECT * FROM rutina_personalizada WHERE usuario_id = ?", (usuario_id,)
-        ).fetchone()
-        if fila is None:
-            return None
-        resultado = dict(fila)
-        resultado["ejercicios"] = json.loads(resultado["ejercicios_json"])
-        return resultado
+        filas = conn.execute(
+            "SELECT * FROM rutina_personalizada WHERE usuario_id = ? ORDER BY slot",
+            (usuario_id,),
+        ).fetchall()
+        resultados = []
+        for fila in filas:
+            resultado = dict(fila)
+            resultado["ejercicios"] = json.loads(resultado["ejercicios_json"])
+            resultados.append(resultado)
+        return resultados
 
 
-def eliminar_rutina_personalizada(usuario_id: str) -> None:
+def eliminar_rutina_personalizada(usuario_id: str, slot: int) -> None:
     with get_connection() as conn:
-        conn.execute("DELETE FROM rutina_personalizada WHERE usuario_id = ?", (usuario_id,))
+        conn.execute(
+            "DELETE FROM rutina_personalizada WHERE usuario_id = ? AND slot = ?", (usuario_id, slot)
+        )
 
 
 def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
@@ -425,7 +487,7 @@ def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
         filas = conn.execute(
             """
             SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, n_ejercicios,
-                   zonas_json, objetivo, feedback_dificultad, completado_en
+                   zonas_json, objetivo, feedback_dificultad, duracion_segundos, completado_en
             FROM interacciones_rutinas
             WHERE usuario_id = ? ORDER BY completado_en DESC LIMIT ?
             """,

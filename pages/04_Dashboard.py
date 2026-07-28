@@ -14,13 +14,9 @@ usuario_id = st.session_state["usuario_id"]
 
 st.title("📈 Mi Progreso")
 
-# ═══════════════════════════════════════════════════════════════════════════
-# TEMPORAL — DEBUG DE CLASIFICACIÓN. Quitar este bloque antes de producción;
-# es solo para verificar a simple vista qué cluster está usando el motor de
-# recomendación mientras se ajusta (mismo dato que imprime "tu cluster es
-# ..." en la consola del servidor).
-# ═══════════════════════════════════════════════════════════════════════════
-with st.expander("🐛 [TEMPORAL] Debug de clasificación — quitar antes de producción"):
+# [HIDDEN] Perfilador del Usuario — funcional, no decorativo. Se deja
+# colapsado y sin explicación a propósito.
+with st.expander("[HIDDEN] Perfilador del Usuario"):
     clasificacion = obtener_clasificacion(usuario_id)
     if clasificacion:
         st.write(f"**Cluster:** {clasificacion['nivel_cluster_nombre']} (id interno: {clasificacion['nivel_cluster']})")
