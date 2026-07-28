@@ -8,42 +8,64 @@ enfocado en la presentación (Plotly + Streamlit), no en la lógica de datos.
 """
 
 from collections import Counter
-from datetime import datetime
 
 import pandas as pd
 
 from utils_rutinas import ZONAS_MUSCULARES, OBJETIVOS, obtener_ejercicio_por_id
 from utils_nutricion import calcular_objetivo_nutricional
 
+# ---------------------------------------------------------------------------
+# RANGO TEMPORAL — mismo selector para todo el dashboard (estilo Power BI):
+# filtra qué datos se usan, y decide la granularidad de agrupación de las
+# gráficas de línea/barras (día para rangos cortos, mes para rangos largos).
+# ---------------------------------------------------------------------------
+OPCIONES_RANGO = ["Última semana", "Último mes", "Último año", "Histórico completo"]
+DIAS_POR_RANGO = {"Última semana": 7, "Último mes": 30, "Último año": 365, "Histórico completo": None}
+
+
+def filtrar_por_rango(historial: list[dict], campo_fecha: str, rango: str) -> list[dict]:
+    dias = DIAS_POR_RANGO.get(rango)
+    if dias is None:
+        return historial
+    limite = pd.Timestamp.now() - pd.Timedelta(days=dias)
+    return [h for h in historial if pd.to_datetime(h[campo_fecha]) >= limite]
+
+
+def granularidad_por_rango(rango: str) -> str:
+    """'dia' para rangos cortos (se puede leer un punto por día); 'mes'
+    para rangos largos (un año de puntos diarios sería ilegible)."""
+    return "dia" if rango in ("Última semana", "Último mes") else "mes"
+
 
 # ---------------------------------------------------------------------------
 # 1. XP ACUMULADO POR FUENTE (rutinas vs. nutrición) — para el área apilada
 # ---------------------------------------------------------------------------
-def calcular_serie_xp_acumulado(historial_rutinas: list[dict], historial_nutricion: list[dict]) -> pd.DataFrame:
+def calcular_serie_xp_acumulado(historial_rutinas: list[dict], historial_nutricion: list[dict],
+                                 granularidad: str = "dia") -> pd.DataFrame:
     """
-    Regresa un DataFrame con una fila por fecha (orden cronológico) y las
-    columnas xp_rutinas_acumulado / xp_nutricion_acumulado — listo para un
-    área apilada que muestre de dónde viene el progreso.
+    Regresa un DataFrame con una fila por periodo (día o mes, orden
+    cronológico) y las columnas xp_rutinas_acumulado / xp_nutricion_acumulado
+    — listo para un área apilada que muestre de dónde viene el progreso.
     """
+    largo = 10 if granularidad == "dia" else 7  # 'YYYY-MM-DD' vs 'YYYY-MM'
+
     eventos = []
     for h in historial_rutinas:
-        fecha = h["completado_en"][:10]  # 'YYYY-MM-DD HH:MM:SS' -> solo la fecha
-        eventos.append({"fecha": fecha, "fuente": "rutinas", "xp": h["xp_ganado"] or 0})
+        eventos.append({"periodo": h["completado_en"][:largo], "fuente": "rutinas", "xp": h["xp_ganado"] or 0})
     for h in historial_nutricion:
-        fecha = h["registrado_en"][:10]
-        eventos.append({"fecha": fecha, "fuente": "nutricion", "xp": h["xp_ganado"] or 0})
+        eventos.append({"periodo": h["registrado_en"][:largo], "fuente": "nutricion", "xp": h["xp_ganado"] or 0})
 
     if not eventos:
-        return pd.DataFrame(columns=["fecha", "xp_rutinas_acumulado", "xp_nutricion_acumulado"])
+        return pd.DataFrame(columns=["periodo", "xp_rutinas_acumulado", "xp_nutricion_acumulado"])
 
     df = pd.DataFrame(eventos)
-    diario = df.groupby(["fecha", "fuente"])["xp"].sum().unstack(fill_value=0)
-    diario = diario.reindex(columns=["rutinas", "nutricion"], fill_value=0).sort_index()
+    agrupado = df.groupby(["periodo", "fuente"])["xp"].sum().unstack(fill_value=0)
+    agrupado = agrupado.reindex(columns=["rutinas", "nutricion"], fill_value=0).sort_index()
 
     resultado = pd.DataFrame({
-        "fecha": diario.index,
-        "xp_rutinas_acumulado": diario["rutinas"].cumsum(),
-        "xp_nutricion_acumulado": diario["nutricion"].cumsum(),
+        "periodo": agrupado.index,
+        "xp_rutinas_acumulado": agrupado["rutinas"].cumsum(),
+        "xp_nutricion_acumulado": agrupado["nutricion"].cumsum(),
     }).reset_index(drop=True)
     return resultado
 
@@ -134,38 +156,86 @@ def obtener_ejercicio_favorito(historial_rutinas: list[dict]) -> dict | None:
     if not candidatos:
         return None
 
-    # Desempate: mayor dificultad primero, luego orden alfabético del nombre.
     candidatos.sort(key=lambda c: (-c["dificultad"], c["nombre"]))
     return candidatos[0]
 
 
 # ---------------------------------------------------------------------------
-# 6. EVOLUCIÓN DE LA DIFICULTAD — una fila por rutina completada, en orden
-# cronológico (el historial viene más-reciente-primero; aquí se invierte).
+# 6. EVOLUCIÓN DE LA DIFICULTAD — promedio por día/mes (no por rutina
+# individual), para que el eje sea de tiempo real, consistente con las
+# demás gráficas.
 # ---------------------------------------------------------------------------
-def calcular_evolucion_dificultad(historial_rutinas: list[dict]) -> pd.DataFrame:
+def calcular_evolucion_dificultad(historial_rutinas: list[dict], granularidad: str = "dia") -> pd.DataFrame:
+    largo = 10 if granularidad == "dia" else 7
     filas = [
-        {"indice": i + 1, "fecha": h["completado_en"], "dificultad": h["dificultad_promedio_rutina"]}
-        for i, h in enumerate(reversed(historial_rutinas))
-        if h.get("dificultad_promedio_rutina") is not None
+        {"periodo": h["completado_en"][:largo], "dificultad": h["dificultad_promedio_rutina"]}
+        for h in historial_rutinas if h.get("dificultad_promedio_rutina") is not None
     ]
-    return pd.DataFrame(filas)
+    if not filas:
+        return pd.DataFrame(columns=["periodo", "dificultad"])
+    df = pd.DataFrame(filas)
+    return df.groupby("periodo")["dificultad"].mean().reset_index().sort_values("periodo")
 
 
 # ---------------------------------------------------------------------------
-# 7. MINUTOS ENTRENADOS POR SEMANA — dato que ya se guarda (duracion_segundos)
+# 7. MINUTOS ENTRENADOS POR DÍA/MES — dato que ya se guarda (duracion_segundos)
 # desde hace varias iteraciones, pero nunca se había mostrado en ningún lado.
 # ---------------------------------------------------------------------------
-def calcular_minutos_entrenados_por_semana(historial_rutinas: list[dict]) -> pd.DataFrame:
-    filas = []
-    for h in historial_rutinas:
-        if h.get("duracion_segundos"):
-            fecha = pd.to_datetime(h["completado_en"])
-            inicio_semana = (fecha - pd.Timedelta(days=fecha.weekday())).strftime("%Y-%m-%d")
-            filas.append({"semana": inicio_semana, "minutos": h["duracion_segundos"] / 60})
-
+def calcular_minutos_entrenados(historial_rutinas: list[dict], granularidad: str = "dia") -> pd.DataFrame:
+    largo = 10 if granularidad == "dia" else 7
+    filas = [
+        {"periodo": h["completado_en"][:largo], "minutos": h["duracion_segundos"] / 60}
+        for h in historial_rutinas if h.get("duracion_segundos")
+    ]
     if not filas:
-        return pd.DataFrame(columns=["semana", "minutos"])
-
+        return pd.DataFrame(columns=["periodo", "minutos"])
     df = pd.DataFrame(filas)
-    return df.groupby("semana")["minutos"].sum().reset_index().sort_values("semana")
+    return df.groupby("periodo")["minutos"].sum().reset_index().sort_values("periodo")
+
+
+# ---------------------------------------------------------------------------
+# 8. RACHA ACTUAL — días consecutivos con actividad (rutina o comida),
+# SIEMPRE calculada sobre el histórico completo (una racha no depende del
+# rango que estés viendo en pantalla). Si hoy todavía no hay actividad, se
+# cuenta desde ayer — para no romper la racha solo porque el día no ha
+# terminado.
+# ---------------------------------------------------------------------------
+def calcular_racha_actual(historial_rutinas_completo: list[dict], historial_nutricion_completo: list[dict]) -> int:
+    fechas = set()
+    for h in historial_rutinas_completo:
+        fechas.add(pd.to_datetime(h["completado_en"]).date())
+    for h in historial_nutricion_completo:
+        fechas.add(pd.to_datetime(h["registrado_en"]).date())
+
+    if not fechas:
+        return 0
+
+    hoy = pd.Timestamp.now().date()
+    cursor = hoy if hoy in fechas else hoy - pd.Timedelta(days=1)
+    if cursor not in fechas:
+        return 0
+
+    racha = 0
+    while cursor in fechas:
+        racha += 1
+        cursor = cursor - pd.Timedelta(days=1)
+    return racha
+
+
+# ---------------------------------------------------------------------------
+# 9. KPIs — resumen para las tarjetas del inicio del dashboard. Responden al
+# rango seleccionado (excepto la racha, ver función 8).
+# ---------------------------------------------------------------------------
+def calcular_kpis(historial_rutinas: list[dict], historial_nutricion: list[dict], racha_actual: int) -> dict:
+    xp_total = sum(h["xp_ganado"] or 0 for h in historial_rutinas) + sum(h["xp_ganado"] or 0 for h in historial_nutricion)
+    minutos_totales = round(sum((h.get("duracion_segundos") or 0) for h in historial_rutinas) / 60)
+    dificultades = [h["dificultad_promedio_rutina"] for h in historial_rutinas if h.get("dificultad_promedio_rutina") is not None]
+
+    return {
+        "xp_total": xp_total,
+        "n_rutinas": len(historial_rutinas),
+        "n_comidas": len(historial_nutricion),
+        "minutos_totales": minutos_totales,
+        "dificultad_promedio": round(sum(dificultades) / len(dificultades), 1) if dificultades else None,
+        "racha_actual": racha_actual,
+    }

@@ -2,14 +2,14 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from utils_db import (
-    obtener_xp_total, obtener_historial_rutinas, obtener_perfil, obtener_clasificacion,
-    obtener_historial_nutricion,
+    obtener_historial_rutinas, obtener_perfil, obtener_clasificacion, obtener_historial_nutricion,
 )
 from utils_rutinas import calcular_ajuste_dificultad, calcular_tope_dificultad, obtener_techo_cluster
 from utils_dashboard import (
+    OPCIONES_RANGO, filtrar_por_rango, granularidad_por_rango,
     calcular_serie_xp_acumulado, calcular_balance_muscular, calcular_distribucion_objetivos,
     calcular_balance_nutricional, obtener_ejercicio_favorito, calcular_evolucion_dificultad,
-    calcular_minutos_entrenados_por_semana,
+    calcular_minutos_entrenados, calcular_racha_actual, calcular_kpis,
 )
 
 st.set_page_config(page_title="ASCEND — Mi Progreso", page_icon="📈", layout="wide")
@@ -24,8 +24,7 @@ usuario_id = st.session_state["usuario_id"]
 
 # ---------------------------------------------------------------------------
 # PALETA REAL DE ASCEND (OKLCH oficial, convertida a hex) + tonos derivados
-# del MISMO matiz (150°) para series secundarias — nada de colores ajenos
-# al branding.
+# del MISMO matiz (150°) para series secundarias.
 # ---------------------------------------------------------------------------
 VERDE_PRIMARIO = "#006a20"   # oklch(0.45 0.15 150) — oficial
 VERDE_MEDIO = "#20a04e"      # derivado, mismo matiz, L=0.62 — series secundarias
@@ -51,8 +50,6 @@ def encabezado_seccion(texto: str, color: str = VERDE_PRIMARIO) -> None:
 
 
 def _layout_base(fig: go.Figure, **kwargs) -> go.Figure:
-    """Estilo compartido por todas las gráficas — fondo, tipografía y
-    márgenes consistentes, para que se sientan parte de la misma app."""
     kwargs.setdefault("margin", dict(l=40, r=30, t=40, b=40))
     fig.update_layout(plot_bgcolor=FONDO, paper_bgcolor=FONDO, font=FUENTE, **kwargs)
     return fig
@@ -60,8 +57,11 @@ def _layout_base(fig: go.Figure, **kwargs) -> go.Figure:
 
 def grafico_radar(categorias: list[str], valores: list[float], color_linea: str, color_relleno: str,
                    titulo: str, valor_max: float | None = None, altura: int = 340):
-    cats_cerrado = categorias + [categorias[0]]
+    # Etiquetas en negritas y más grandes — antes casi no se veían.
+    categorias_negritas = [f"<b>{c}</b>" for c in categorias]
+    cats_cerrado = categorias_negritas + [categorias_negritas[0]]
     vals_cerrado = valores + [valores[0]]
+
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
         r=vals_cerrado, theta=cats_cerrado, fill="toself",
@@ -71,14 +71,21 @@ def grafico_radar(categorias: list[str], valores: list[float], color_linea: str,
     fig.update_layout(
         polar=dict(
             bgcolor=FONDO,
-            radialaxis=dict(visible=True, range=[0, valor_max] if valor_max else None,
-                             gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE),
-            angularaxis=dict(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, tickfont=dict(color=CASI_NEGRO, size=11)),
+            radialaxis=dict(
+                visible=True, showticklabels=False,  # se quita el "eje" de números, se ve feo
+                range=[0, valor_max] if valor_max else None,
+                gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE,
+            ),
+            angularaxis=dict(
+                gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE,
+                tickfont=dict(color=CASI_NEGRO, size=14),
+            ),
         ),
-        showlegend=False, title=dict(text=titulo, x=0.5, font=dict(color=CASI_NEGRO, size=15)),
+        showlegend=False,
+        title=dict(text=titulo, x=0.5, xanchor="center", font=dict(color=CASI_NEGRO, size=19)),
         height=altura,
     )
-    return _layout_base(fig, margin=dict(l=30, r=30, t=55, b=20))
+    return _layout_base(fig, margin=dict(l=30, r=30, t=60, b=20))
 
 
 st.markdown(f"<h1 style='color: {CASI_NEGRO};'>📈 Mi Progreso</h1>", unsafe_allow_html=True)
@@ -106,41 +113,61 @@ with st.expander("[HIDDEN] Perfilador del Usuario"):
     st.write(f"**Tope progresivo actual:** {calcular_tope_dificultad(cluster_nombre, historial_debug):.1f}")
 
 # ---------------------------------------------------------------------------
-# CARGA DE DATOS — una sola vez, se reutiliza en todas las gráficas de abajo
+# CARGA DE DATOS COMPLETA (sin filtrar) — se usa para la racha (que siempre
+# ve el histórico completo) y como base para filtrar por el rango elegido.
 # ---------------------------------------------------------------------------
-historial_rutinas = obtener_historial_rutinas(usuario_id, limite=200)
-historial_nutricion = obtener_historial_nutricion(usuario_id, limite=200)
+historial_rutinas_completo = obtener_historial_rutinas(usuario_id, limite=1000)
+historial_nutricion_completo = obtener_historial_nutricion(usuario_id, limite=1000)
 perfil = obtener_perfil(usuario_id)
+racha_actual = calcular_racha_actual(historial_rutinas_completo, historial_nutricion_completo)
 
-col_xp, col_perfil = st.columns(2)
-with col_xp:
-    st.metric("XP acumulado", obtener_xp_total(usuario_id))
-with col_perfil:
-    st.metric("Última actualización de perfil", perfil["actualizado_en"] if perfil else "Sin registrar aún")
+# ═══════════════════════════════════════════════════════════════════════════
+# ESTADÍSTICAS HISTÓRICAS + SELECTOR DE RANGO — al inicio, como un tablero.
+# ═══════════════════════════════════════════════════════════════════════════
+encabezado_seccion("📊 Estadísticas")
+
+rango_seleccionado = st.radio(
+    "Rango a mostrar", OPCIONES_RANGO, index=0, horizontal=True, label_visibility="collapsed",
+)
+granularidad = granularidad_por_rango(rango_seleccionado)
+
+historial_rutinas = filtrar_por_rango(historial_rutinas_completo, "completado_en", rango_seleccionado)
+historial_nutricion = filtrar_por_rango(historial_nutricion_completo, "registrado_en", rango_seleccionado)
+
+kpis = calcular_kpis(historial_rutinas, historial_nutricion, racha_actual)
+
+col1, col2, col3, col4, col5, col6 = st.columns(6)
+col1.metric("XP en el periodo", kpis["xp_total"])
+col2.metric("Rutinas completadas", kpis["n_rutinas"])
+col3.metric("Comidas registradas", kpis["n_comidas"])
+col4.metric("Minutos entrenados", kpis["minutos_totales"])
+col5.metric("Dificultad promedio", kpis["dificultad_promedio"] if kpis["dificultad_promedio"] is not None else "—")
+col6.metric("🔥 Racha actual", f"{kpis['racha_actual']} día(s)")
 
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FILA 1 (1:1) — XP acumulado | Evolución de la dificultad
+# FILA 1 (1:1) — XP acumulado | Evolución de la dificultad (por día/mes)
 # ═══════════════════════════════════════════════════════════════════════════
 col_xp_area, col_evol = st.columns([1, 1])
+etiqueta_periodo = "Día" if granularidad == "dia" else "Mes"
 
 with col_xp_area:
     encabezado_seccion("📊 XP acumulado — de dónde viene tu progreso")
-    serie_xp = calcular_serie_xp_acumulado(historial_rutinas, historial_nutricion)
+    serie_xp = calcular_serie_xp_acumulado(historial_rutinas, historial_nutricion, granularidad)
     if len(serie_xp) >= 1 and (serie_xp["xp_rutinas_acumulado"].iloc[-1] > 0 or serie_xp["xp_nutricion_acumulado"].iloc[-1] > 0):
         fig_xp = go.Figure()
         fig_xp.add_trace(go.Scatter(
-            x=serie_xp["fecha"], y=serie_xp["xp_rutinas_acumulado"], mode="lines", name="Rutinas",
+            x=serie_xp["periodo"], y=serie_xp["xp_rutinas_acumulado"], mode="lines", name="Rutinas",
             line=dict(color=VERDE_PRIMARIO, width=2.5, shape="spline"), fill="tozeroy",
             fillcolor="rgba(0, 106, 32, 0.35)", stackgroup="xp",
         ))
         fig_xp.add_trace(go.Scatter(
-            x=serie_xp["fecha"], y=serie_xp["xp_nutricion_acumulado"], mode="lines", name="Nutrición",
+            x=serie_xp["periodo"], y=serie_xp["xp_nutricion_acumulado"], mode="lines", name="Nutrición",
             line=dict(color=VERDE_MEDIO, width=2.5, shape="spline"), fill="tonexty",
             fillcolor="rgba(32, 160, 78, 0.35)", stackgroup="xp",
         ))
-        fig_xp.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE)
+        fig_xp.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
         fig_xp.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="XP acumulado")
         _layout_base(
             fig_xp, height=360,
@@ -152,16 +179,16 @@ with col_xp_area:
 
 with col_evol:
     encabezado_seccion("📈 Evolución de la dificultad", color=CASI_NEGRO)
-    evolucion = calcular_evolucion_dificultad(historial_rutinas)
+    evolucion = calcular_evolucion_dificultad(historial_rutinas, granularidad)
     if not evolucion.empty:
         fig_evol = go.Figure()
         fig_evol.add_trace(go.Scatter(
-            x=evolucion["indice"], y=evolucion["dificultad"], mode="lines+markers",
+            x=evolucion["periodo"], y=evolucion["dificultad"], mode="lines+markers",
             line=dict(color=VERDE_PRIMARIO, width=2.5, shape="spline"),
             marker=dict(size=8, color=VERDE_PRIMARIO, line=dict(color="white", width=1)),
             fill="tozeroy", fillcolor="rgba(0, 106, 32, 0.15)",
         ))
-        fig_evol.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Rutina completada #")
+        fig_evol.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
         fig_evol.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Dificultad promedio")
         _layout_base(fig_evol, height=360)
         st.plotly_chart(fig_evol, use_container_width=True)
@@ -219,23 +246,23 @@ with col_derecha:
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FILA 3 — Minutos entrenados por semana (nueva, usa duracion_segundos)
+# FILA 3 — Minutos entrenados por día/mes
 # ═══════════════════════════════════════════════════════════════════════════
-encabezado_seccion("⏱️ Minutos entrenados por semana", color=CASI_NEGRO)
-minutos_semana = calcular_minutos_entrenados_por_semana(historial_rutinas)
-if not minutos_semana.empty:
+encabezado_seccion(f"⏱️ Minutos entrenados por {etiqueta_periodo.lower()}", color=CASI_NEGRO)
+minutos_periodo = calcular_minutos_entrenados(historial_rutinas, granularidad)
+if not minutos_periodo.empty:
     fig_minutos = go.Figure()
     fig_minutos.add_trace(go.Bar(
-        x=minutos_semana["semana"], y=minutos_semana["minutos"],
+        x=minutos_periodo["periodo"], y=minutos_periodo["minutos"],
         marker=dict(color=VERDE_PRIMARIO, line=dict(color=VERDE_MEDIO, width=1)),
-        text=minutos_semana["minutos"].round().astype(int), textposition="outside",
+        text=minutos_periodo["minutos"].round().astype(int), textposition="outside",
     ))
-    fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Semana (lunes de inicio)")
+    fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
     fig_minutos.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Minutos entrenados")
     _layout_base(fig_minutos, height=320, showlegend=False)
     st.plotly_chart(fig_minutos, use_container_width=True)
 else:
-    st.info("Completa rutinas para ver aquí cuántos minutos entrenas cada semana.")
+    st.info(f"Completa rutinas para ver aquí cuántos minutos entrenas por {etiqueta_periodo.lower()}.")
 
 st.divider()
 
@@ -262,7 +289,7 @@ with st.expander("📋 Ver historial detallado de rutinas y nutrición"):
     if historial_rutinas:
         st.dataframe(historial_rutinas, use_container_width=True)
     else:
-        st.caption("Todavía no completas ninguna rutina.")
+        st.caption("Todavía no completas ninguna rutina en este rango.")
 
     st.subheader("Nutrición")
     if historial_nutricion:
@@ -276,7 +303,7 @@ with st.expander("📋 Ver historial detallado de rutinas y nutrición"):
         ]
         st.dataframe(filas_tabla, use_container_width=True)
     else:
-        st.caption("Todavía no registras ninguna comida.")
+        st.caption("Todavía no registras ninguna comida en este rango.")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # RESERVADO — EN DESARROLLO
