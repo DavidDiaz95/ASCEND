@@ -412,6 +412,37 @@ def buscar_comidas_por_objetivo(objetivo_nutricional: dict, n_opciones: int = 3)
 
 
 # ---------------------------------------------------------------------------
+# INGREDIENTES NECESARIOS — las opciones de "recomendadas para tu objetivo"
+# no vienen del refrigerador, así que no traen usedIngredients/
+# missedIngredients (eso es exclusivo de findByIngredients). Esta función
+# trae la lista completa de ingredientes de la receta (una sola llamada) para
+# mostrarla al elegir, aunque no venga del buscador por disponibilidad.
+# ---------------------------------------------------------------------------
+def obtener_ingredientes_de_receta(receta_id: int) -> list[str]:
+    if not SPOONACULAR_API_KEY:
+        raise ErrorNutricion("No hay SPOONACULAR_API_KEY configurada en .env")
+
+    print(f"[ASCEND][nutricion][request] recipe information id={receta_id} (para ingredientes)")
+    try:
+        resp = requests.get(
+            f"{SPOONACULAR_BASE_URL}/recipes/{receta_id}/information",
+            params={"apiKey": SPOONACULAR_API_KEY},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        raise ErrorNutricion(f"No se pudo conectar con Spoonacular: {e}")
+
+    print(f"[ASCEND][nutricion][response] recipe information status={resp.status_code}")
+    if resp.status_code == 402:
+        raise ErrorNutricion("Se acabó la cuota gratuita de Spoonacular por hoy (50 puntos/día). Intenta mañana.")
+    if not resp.ok:
+        raise ErrorNutricion(f"Spoonacular respondió con error {resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json()
+    return [ing["name"] for ing in data.get("extendedIngredients", []) if ing.get("name")]
+
+
+# ---------------------------------------------------------------------------
 # INSTRUCCIONES DE PREPARACIÓN — DENTRO de la app, no un link externo.
 # Usa las instrucciones REALES de Spoonacular (una sola llamada, barata en
 # cuota) y solo las traduce/formatea con el LLM — no inventa una receta

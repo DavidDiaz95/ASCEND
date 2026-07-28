@@ -7,7 +7,8 @@ from utils_db import (
 from utils_nutricion import (
     identificar_ingredientes_de_foto, traducir_ingredientes_a_ingles, traducir_ingredientes_a_espanol,
     buscar_opciones_comida, buscar_comidas_por_objetivo, calcular_objetivo_nutricional,
-    obtener_instrucciones_preparacion, XP_POR_COMIDA_CONFIRMADA, ErrorNutricion,
+    obtener_instrucciones_preparacion, obtener_ingredientes_de_receta,
+    XP_POR_COMIDA_CONFIRMADA, ErrorNutricion,
 )
 
 st.set_page_config(page_title="ASCEND — Nutrición", page_icon="🥗")
@@ -38,13 +39,24 @@ def encabezado_seccion(texto: str, color: str = VERDE_PRIMARIO) -> None:
 
 def elegir_opcion(opcion: dict) -> None:
     """Traduce ingredientes usados/faltantes a español ANTES de pasar a la
-    pantalla de confirmación — más legible para nuestro público. Limpia
-    también cualquier instrucción de una comida elegida previamente."""
+    pantalla de confirmación — más legible para nuestro público. Si la
+    opción viene de 'recomendadas para tu objetivo' (no del refri), no trae
+    usados/faltantes — en ese caso se busca la lista de ingredientes
+    NECESARIOS por default, para que la pantalla nunca se quede vacía de
+    esa información. Limpia también cualquier instrucción de una comida
+    elegida previamente."""
     opcion = dict(opcion)
-    if opcion.get("ingredientes_usados") or opcion.get("ingredientes_faltantes"):
-        with st.spinner("Preparando el detalle..."):
+    with st.spinner("Preparando el detalle..."):
+        if opcion.get("ingredientes_usados") or opcion.get("ingredientes_faltantes"):
             opcion["ingredientes_usados"] = traducir_ingredientes_a_espanol(opcion.get("ingredientes_usados", []))
             opcion["ingredientes_faltantes"] = traducir_ingredientes_a_espanol(opcion.get("ingredientes_faltantes", []))
+        else:
+            try:
+                necesarios = obtener_ingredientes_de_receta(opcion["id"])
+                opcion["ingredientes_necesarios"] = traducir_ingredientes_a_espanol(necesarios)
+            except ErrorNutricion as e:
+                st.error(str(e))
+                opcion["ingredientes_necesarios"] = []
     st.session_state["comida_seleccionada"] = opcion
     st.session_state.pop("instrucciones_actual", None)
     st.rerun()
@@ -104,6 +116,8 @@ if st.session_state.get("comida_seleccionada"):
             st.caption(f"✅ Usa: {', '.join(comida['ingredientes_usados'])}")
         if comida.get("ingredientes_faltantes"):
             st.caption(f"🛒 Te faltaría: {', '.join(comida['ingredientes_faltantes'])}")
+        if comida.get("ingredientes_necesarios"):
+            st.caption(f"🧾 Ingredientes necesarios: {', '.join(comida['ingredientes_necesarios'])}")
 
     st.divider()
 
@@ -180,15 +194,19 @@ else:
     carbs_hoy = sum(c.get("carbohidratos_g") or 0 for c in comidas_hoy)
 
     progreso_calorias = min(calorias_hoy / metas["calorias"], 1.0) if metas["calorias"] else 0.0
-    st.progress(
-        progreso_calorias,
-        text=f"Progreso de hoy: {round(calorias_hoy)} / {metas['calorias']} kcal ({len(comidas_hoy)} comida(s))",
-    )
-    st.caption(
-        f"Proteína: {round(proteina_hoy)}/{metas['proteina_g']} g · "
-        f"Grasa: {round(grasa_hoy)}/{metas['grasa_g']} g · "
-        f"Carbohidratos: {round(carbs_hoy)}/{metas['carbohidratos_g']} g — solo indicativo."
-    )
+    progreso_proteina = min(proteina_hoy / metas["proteina_g"], 1.0) if metas["proteina_g"] else 0.0
+    progreso_grasa = min(grasa_hoy / metas["grasa_g"], 1.0) if metas["grasa_g"] else 0.0
+    progreso_carbs = min(carbs_hoy / metas["carbohidratos_g"], 1.0) if metas["carbohidratos_g"] else 0.0
+
+    st.caption(f"Progreso de hoy — {len(comidas_hoy)} comida(s) registrada(s):")
+    col_prog1, col_prog2 = st.columns(2)
+    with col_prog1:
+        st.progress(progreso_calorias, text=f"🔥 Calorías: {round(calorias_hoy)}/{metas['calorias']} kcal")
+        st.progress(progreso_grasa, text=f"🥑 Grasa: {round(grasa_hoy)}/{metas['grasa_g']} g")
+    with col_prog2:
+        st.progress(progreso_proteina, text=f"🍗 Proteína: {round(proteina_hoy)}/{metas['proteina_g']} g")
+        st.progress(progreso_carbs, text=f"🍞 Carbohidratos: {round(carbs_hoy)}/{metas['carbohidratos_g']} g")
+    st.caption("Solo indicativo — no es una meta estricta, es para que veas cómo vas.")
 
 st.divider()
 
