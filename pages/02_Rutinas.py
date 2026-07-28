@@ -16,7 +16,7 @@ from utils_rutinas import (
     EQUIPO_OPCIONES, CATEGORIAS_EQUIPO, ZONAS_MUSCULARES, OBJETIVOS,
     filtrar_ejercicios, ruta_gif, generar_menu_rutinas, generar_calentamiento,
     formatear_features_ejercicio, obtener_ejercicio_por_id, generar_menu_por_grupos,
-    formatear_nombre_ejercicio,
+    formatear_nombre_ejercicio, calcular_ajuste_dificultad,
 )
 
 st.set_page_config(page_title="ASCEND — Rutinas", page_icon="🏋️")
@@ -315,6 +315,14 @@ if st.session_state.get("menu_rutinas_clave") != clave_menu_actual:
     frecuencia_zonas = obtener_frecuencia_zonas_reciente(usuario_id)
 
     print(f"tu cluster es {nivel_cluster_nombre}")
+    n_facil = sum(1 for h in historial if h.get("feedback_dificultad") == "facil")
+    n_dificil = sum(1 for h in historial if h.get("feedback_dificultad") == "dificil")
+    n_bien = sum(1 for h in historial if h.get("feedback_dificultad") == "bien")
+    print(
+        f"[ASCEND][diagnostico_dificultad] usuario={st.session_state.get('username')} "
+        f"n_rutinas_en_historial={len(historial)} facil={n_facil} bien={n_bien} dificil={n_dificil} "
+        f"ajuste_calculado={calcular_ajuste_dificultad(historial)}"
+    )
 
     st.session_state["menu_rutinas"] = generar_menu_rutinas(
         equipo_activo, objetivo_seleccionado, nivel_cluster_nombre,
@@ -350,7 +358,10 @@ with col_izq:
             with st.container(border=True):
                 st.markdown(f"**{rutina['etiqueta']}**")
                 zonas_resumen = ", ".join(f"{z} ({n})" for z, n in rutina["zonas_contadas"].items())
-                st.caption(f"{len(rutina['ejercicios'])} ejercicios · dificultad {rutina['dificultad_promedio_rutina']}/100")
+                st.caption(
+                    f"{len(rutina['ejercicios'])} ejercicios · dificultad {rutina['dificultad_promedio_rutina']}/100 "
+                    f"· objetivo interno {rutina['nivel_dinamico_usado']}/100"
+                )
                 st.caption(f"Zonas: {zonas_resumen}")
                 if st.button("▶️ Empezar", key=f"empezar_{rutina['rutina_id']}", use_container_width=True):
                     iniciar_ejecucion(rutina, equipo_activo)
@@ -365,7 +376,10 @@ with col_der:
         for rutina in menu_grupos:
             with st.container(border=True):
                 st.markdown(f"**{rutina['etiqueta']}**")
-                st.caption(f"{len(rutina['ejercicios'])} ejercicios · dificultad {rutina['dificultad_promedio_rutina']}/100")
+                st.caption(
+                    f"{len(rutina['ejercicios'])} ejercicios · dificultad {rutina['dificultad_promedio_rutina']}/100 "
+                    f"· objetivo interno {rutina['nivel_dinamico_usado']}/100"
+                )
                 if st.button("▶️ Empezar", key=f"empezar_grupo_{rutina['rutina_id']}", use_container_width=True):
                     iniciar_ejecucion(rutina, equipo_activo)
 

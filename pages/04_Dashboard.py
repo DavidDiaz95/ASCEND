@@ -1,6 +1,7 @@
 import streamlit as st
 
 from utils_db import obtener_xp_total, obtener_historial_rutinas, obtener_perfil, obtener_clasificacion
+from utils_rutinas import calcular_ajuste_dificultad, calcular_tope_dificultad, obtener_techo_cluster
 
 st.set_page_config(page_title="ASCEND — Mi Progreso", page_icon="📈")
 
@@ -24,6 +25,17 @@ with st.expander("[HIDDEN] Perfilador del Usuario"):
         st.json(clasificacion)
     else:
         st.warning("Este usuario todavía no tiene una clasificación guardada.")
+
+    st.divider()
+    historial_debug = obtener_historial_rutinas(usuario_id)
+    n_facil = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "facil")
+    n_bien = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "bien")
+    n_dificil = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "dificil")
+    cluster_nombre = clasificacion["nivel_cluster_nombre"] if clasificacion else None
+    st.write(f"**Feedback registrado:** fácil={n_facil} · bien={n_bien} · difícil={n_dificil}")
+    st.write(f"**Ajuste de dificultad calculado:** {calcular_ajuste_dificultad(historial_debug):+.1f}")
+    st.write(f"**Techo del cluster (con expansión):** {obtener_techo_cluster(cluster_nombre, historial_debug):.1f}")
+    st.write(f"**Tope progresivo actual:** {calcular_tope_dificultad(cluster_nombre, historial_debug):.1f}")
 
 col_xp, col_perfil = st.columns(2)
 with col_xp:
