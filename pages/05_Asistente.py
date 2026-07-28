@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 import streamlit as st
 from openai import OpenAI
 
+from prompts import construir_system_prompt
+from utils_db import obtener_perfil, obtener_xp_total
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUTA_LOGOS = BASE_DIR / "Logos"
 
@@ -25,19 +28,17 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client_openai = OpenAI(api_key=OPENAI_API_KEY)
 model_openai = "gpt-5.4-mini"
 
-SYSTEM_PROMPT = """
-Eres el asistente conversacional de ASCEND, una app de fitness y nutrición
-para LATAM. Tu tono es motivador, cercano y nunca condescendiente.
-
-Reglas importantes:
-- Nunca le digas al usuario que está en un "nivel bajo" o uses etiquetas
-  clínicas sobre su condición física — el progreso se comunica solo a través
-  de su XP y rutinas completadas, nunca comparando su cuerpo contra otros.
-- Ayuda a definir o ajustar el objetivo del usuario (bajar de peso, ganar
-  fuerza, salud general, mejorar rendimiento) cuando lo pidan.
-- Si preguntan algo médico serio (lesiones, dolor persistente, condiciones
-  de salud), recomienda consultar a un profesional en vez de dar diagnóstico.
-"""
+# El system prompt ya no es un string fijo — se arma con el objetivo y el
+# XP real del usuario (ver prompts.py). nivel_cluster NUNCA se pasa aquí:
+# la sección de seguridad de construir_system_prompt() ya cubre qué hacer
+# si preguntan por su clasificación.
+usuario_id = st.session_state["usuario_id"]
+perfil_usuario = obtener_perfil(usuario_id) or {}
+SYSTEM_PROMPT = construir_system_prompt(
+    nombre_usuario=st.session_state.get("username"),
+    objetivo=perfil_usuario.get("objetivo"),
+    xp_total=obtener_xp_total(usuario_id),
+)
 
 col_izq, col_centro, col_der = st.columns([1, 2, 1])
 with col_centro:
@@ -77,13 +78,3 @@ if prompt := st.chat_input("Escribe tu mensaje aquí..."):
         response = st.write_stream(stream)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
-
-# ═══════════════════════════════════════════════════════════════════════════
-# RESERVADO — EN DESARROLLO
-# ═══════════════════════════════════════════════════════════════════════════
-# Pendiente: darle al asistente contexto real del usuario (perfil, XP,
-# nivel_cluster de forma indirecta) inyectándolo al SYSTEM_PROMPT o como un
-# mensaje de sistema adicional armado con utils_db.obtener_perfil(usuario_id)
-# y utils_db.obtener_xp_total(usuario_id), para que las respuestas dejen de
-# ser genéricas y hablen de la rutina/nutrición real del usuario.
-# ═══════════════════════════════════════════════════════════════════════════

@@ -42,6 +42,17 @@ EQUIPO_OPCIONES = [
     "escaladora", "ergómetro de tren superior",
 ]
 
+# Mismos 27 items de EQUIPO_OPCIONES, agrupados para mostrarse como grilla
+# de checkboxes (más fácil de navegar que un multiselect de una sola lista
+# larga). Cualquier equipo nuevo que agregues a EQUIPO_OPCIONES también
+# debe agregarse aquí en la categoría que le corresponda.
+CATEGORIAS_EQUIPO = {
+    "🧍 Cuerpo libre": ["peso corporal", "banda de resistencia", "rueda abdominal", "cuerda", "rodillo", "llanta"],
+    "🏋️ Pesas libres": ["mancuerna", "barra", "barra ez", "barra olímpica", "barra hexagonal", "kettlebell", "con peso (lastrado)"],
+    "⚙️ Máquinas": ["polea", "máquina de palanca", "máquina smith", "máquina de trineo", "máquina hammer", "máquina skierg", "asistido"],
+    "🚴 Cardio y estabilidad": ["bicicleta estática", "elíptica", "escaladora", "ergómetro de tren superior", "balón de estabilidad", "balón bosu", "balón medicinal"],
+}
+
 ZONAS_MUSCULARES = [
     "Core", "Tren inferior", "Tracción superior", "Empuje superior",
     "Cardio", "Accesorio (antebrazo)", "Accesorio (cuello)",
@@ -296,12 +307,12 @@ TOPE_DIFICULTAD_ABSOLUTO = 100.0
 
 
 def calcular_tope_dificultad(nivel_cluster_nombre: str | None, historial: list[dict] | None) -> float:
-    rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
+    techo = obtener_techo_cluster(nivel_cluster_nombre, historial)
     n_completadas = calcular_metricas_historial(historial)["n_rutinas_completadas"]
     tope = TOPE_DIFICULTAD_INICIAL + INCREMENTO_TOPE_POR_RUTINA * n_completadas
-    # El tope nunca baja de 70 ni sube más allá de lo que su cluster/rango
-    # permite (ni más allá del máximo absoluto de todas formas).
-    return min(max(tope, TOPE_DIFICULTAD_INICIAL), rango[1], TOPE_DIFICULTAD_ABSOLUTO)
+    # El tope nunca baja de 50 ni sube más allá del techo del cluster (que
+    # ahora sí puede expandirse con rachas de "fácil"), ni del máximo absoluto.
+    return min(max(tope, TOPE_DIFICULTAD_INICIAL), techo, TOPE_DIFICULTAD_ABSOLUTO)
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +322,55 @@ def calcular_tope_dificultad(nivel_cluster_nombre: str | None, historial: list[d
 # ---------------------------------------------------------------------------
 AJUSTE_POR_FEEDBACK = {"facil": +8.0, "bien": 0.0, "dificil": -8.0}
 N_FEEDBACKS_RECIENTES = 3
+
+# ---------------------------------------------------------------------------
+# EXPANSIÓN DEL TECHO POR RACHA DE "FÁCIL" — el bug real que reportaste:
+# el rango de dificultad del cluster actuaba como techo FIJO para siempre.
+# Para dos de los cuatro clusters, ese techo ya era más bajo que el tope
+# inicial (50), así que ningún feedback ni ninguna cantidad de rutinas
+# completadas podía subir la dificultad — quedaba recortada contra el
+# techo del cluster desde el día uno.
+#
+# Ahora, cada UMBRAL_FACIL_CONSECUTIVO rutinas seguidas marcadas "fácil"
+# (por cantidad de rutinas, nunca por días) EXPANDEN el techo real en
+# EXPANSION_POR_FACIL_CONSECUTIVO puntos. La racha se cuenta desde la
+# rutina más reciente hacia atrás y se corta en cuanto aparece un
+# "bien"/"difícil" — así que un solo feedback distinto revierte la
+# expansión de inmediato (self-correcting).
+# ---------------------------------------------------------------------------
+UMBRAL_FACIL_CONSECUTIVO = 2
+EXPANSION_POR_FACIL_CONSECUTIVO = 10.0
+EXPANSION_MAXIMA = 40.0
+
+
+def contar_facil_consecutivos(historial: list[dict] | None) -> int:
+    """Cuántas rutinas SEGUIDAS (empezando por la más reciente) fueron
+    marcadas 'facil'. Se corta en la primera que no lo sea — por eso es
+    'consecutivas', no un conteo total acumulado."""
+    contador = 0
+    for h in (historial or []):
+        if h.get("feedback_dificultad") == "facil":
+            contador += 1
+        else:
+            break
+    return contador
+
+
+def calcular_expansion_techo(historial: list[dict] | None) -> float:
+    """Cuánto se expande el techo de dificultad del cluster por rachas de
+    'fácil'. Se activa exactamente cada UMBRAL_FACIL_CONSECUTIVO rutinas
+    seguidas — con 2 fáciles ya sube, no hace falta esperar más."""
+    consecutivos = contar_facil_consecutivos(historial)
+    pares_completos = consecutivos // UMBRAL_FACIL_CONSECUTIVO
+    return min(pares_completos * EXPANSION_POR_FACIL_CONSECUTIVO, EXPANSION_MAXIMA)
+
+
+def obtener_techo_cluster(nivel_cluster_nombre: str | None, historial: list[dict] | None) -> float:
+    """El límite superior 'real' a usar en vez de RANGO_DIFICULTAD_POR_CLUSTER[...][1]
+    directo — el rango del cluster sigue siendo el punto de partida, pero
+    ya no es un techo permanente."""
+    rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
+    return min(rango[1] + calcular_expansion_techo(historial), TOPE_DIFICULTAD_ABSOLUTO)
 
 
 def calcular_ajuste_por_feedback(historial: list[dict] | None) -> float:
@@ -352,9 +412,10 @@ def estimar_nivel_dinamico(nivel_cluster_nombre: str | None, historial: list[dic
     desplazando hacia el desempeño real conforme se acumulan rutinas
     completadas, con un pequeño empuje de progresión hacia arriba, y un
     ajuste adicional por el feedback explícito del usuario ("se me hizo
-    fácil/difícil"). Doble tope: nunca sale del rango del cluster, nunca
-    pasa de 100."""
+    fácil/difícil"). El techo superior YA NO es fijo — se expande con
+    rachas de "fácil" (ver calcular_expansion_techo)."""
     rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
+    techo = obtener_techo_cluster(nivel_cluster_nombre, historial)
     nivel_base_cluster = (rango[0] + rango[1]) / 2
 
     metricas = calcular_metricas_historial(historial)
@@ -373,7 +434,7 @@ def estimar_nivel_dinamico(nivel_cluster_nombre: str | None, historial: list[dic
 
     nivel_estimado += calcular_ajuste_por_feedback(historial)
 
-    nivel_estimado = max(rango[0], min(nivel_estimado, rango[1]))  # tope 1: rango del cluster
+    nivel_estimado = max(rango[0], min(nivel_estimado, techo))  # tope 1: techo expandible del cluster
     return round(min(nivel_estimado, 100), 1)  # tope 2: regla dura absoluta
 
 
@@ -410,10 +471,16 @@ def _generar_variante(
     """
     df = cargar_catalogo()
     disponibles = df[df["equipment"].isin(equipo_disponible)].copy()
-    if excluir_ids:
-        disponibles = disponibles[~disponibles["id"].isin(excluir_ids)]
     if zonas_forzadas:
         disponibles = disponibles[disponibles["zona_muscular"].isin(zonas_forzadas.keys())]
+
+    if excluir_ids:
+        disponibles_sin_recientes = disponibles[~disponibles["id"].isin(excluir_ids)]
+        # Salvaguarda: si con poco equipo la exclusión deja menos candidatos
+        # que ejercicios se necesitan, se ignora la exclusión — mejor repetir
+        # algún ejercicio que no poder armar la rutina completa.
+        if len(disponibles_sin_recientes) >= n_ejercicios:
+            disponibles = disponibles_sin_recientes
 
     if disponibles.empty:
         return {"rutina_id": None, "etiqueta": etiqueta, "ejercicios": [],
@@ -535,6 +602,26 @@ VARIANTES_MENU = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# ROTACIÓN DE EJERCICIOS — evita que la misma rutina "top score" salga
+# idéntica cada vez que se genera con los mismos parámetros. Se excluyen los
+# ejercicios principales de las últimas N_RUTINAS_EXCLUSION_ROTACION rutinas
+# COMPLETADAS (por cantidad de rutinas, nunca por fecha/día).
+# ---------------------------------------------------------------------------
+N_RUTINAS_EXCLUSION_ROTACION = 2
+
+
+def obtener_ids_recientes(historial: list[dict] | None, n_rutinas: int = N_RUTINAS_EXCLUSION_ROTACION) -> set:
+    """IDs de ejercicios principales usados en las últimas n_rutinas
+    completadas (el historial ya viene ordenado del más reciente al más
+    viejo). Se usan como `excluir_ids` para que la siguiente rutina no
+    repita lo mismo que ya se hizo."""
+    ids = set()
+    for h in (historial or [])[:n_rutinas]:
+        ids.update(h.get("ejercicios_ids", []))
+    return ids
+
+
 def generar_menu_rutinas(
     equipo_disponible: list[str],
     objetivo: str,
@@ -548,11 +635,13 @@ def generar_menu_rutinas(
     dificultad + variantes temáticas) usando el MISMO motor de similitud
     coseno con distintos parámetros, y las ordena por qué tan bien encajó
     cada una con su propio criterio (similitud_promedio) — así el orden es
-    el "orden de recomendación" real, no un orden fijo. Puede haber
-    variantes duplicadas en la práctica cuando el tope de dificultad
-    progresivo recorta varias al mismo techo (normal en usuarios nuevos con
-    poco equipo) — eso mismo se resuelve solo conforme el usuario progresa.
+    el "orden de recomendación" real, no un orden fijo. Excluye los
+    ejercicios de tus últimas rutinas completadas (ver
+    N_RUTINAS_EXCLUSION_ROTACION) para garantizar variedad real entre
+    rutinas, no solo dentro de la misma rutina.
     """
+    excluir_ids = obtener_ids_recientes(historial)
+
     variantes = []
     for cfg in VARIANTES_MENU:
         variante = _generar_variante(
@@ -562,6 +651,7 @@ def generar_menu_rutinas(
             peso_balance=cfg["peso_balance"],
             frecuencia_zonas=frecuencia_zonas,
             etiqueta=cfg["etiqueta"],
+            excluir_ids=excluir_ids,
         )
         if variante["ejercicios"]:
             variantes.append(variante)
@@ -598,7 +688,7 @@ def generar_rutina_por_grupo(
     return _generar_variante(
         equipo_disponible, objetivo="Salud general", nivel_cluster_nombre=nivel_cluster_nombre,
         historial=historial, n_ejercicios=n_ejercicios, etiqueta=etiqueta,
-        zonas_forzadas={zona: 1.0},
+        zonas_forzadas={zona: 1.0}, excluir_ids=obtener_ids_recientes(historial),
     )
 
 

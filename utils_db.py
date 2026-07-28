@@ -145,6 +145,12 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         # Tiempo real entre "Empezar" y "Terminar rutina" — para el
         # dashboard de progreso.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN duracion_segundos INTEGER")
+    if "ejercicios_ids_json" not in columnas_interacciones:
+        # IDs exactos de los ejercicios PRINCIPALES de la rutina (no
+        # calentamiento). Sin esto no hay forma de garantizar rotación real
+        # entre rutinas — solo sabíamos zonas musculares, no qué ejercicios
+        # específicos ya se repitieron.
+        conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN ejercicios_ids_json TEXT")
 
     _migrar_rutina_personalizada_a_multi_slot(conn)
 
@@ -360,6 +366,7 @@ def registrar_interaccion_rutina(
     objetivo: str | None = None,
     feedback_dificultad: str | None = None,
     duracion_segundos: int | None = None,
+    ejercicios_ids: list[str] | None = None,
 ) -> None:
     import json
 
@@ -368,13 +375,15 @@ def registrar_interaccion_rutina(
             """
             INSERT INTO interacciones_rutinas
                 (usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
-                 n_ejercicios, zonas_json, objetivo, feedback_dificultad, duracion_segundos)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 n_ejercicios, zonas_json, objetivo, feedback_dificultad,
+                 duracion_segundos, ejercicios_ids_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 usuario_id, rutina_id, xp_ganado, dificultad_promedio_rutina,
                 n_ejercicios, json.dumps(zonas_json) if zonas_json is not None else None,
                 objetivo, feedback_dificultad, duracion_segundos,
+                json.dumps(ejercicios_ids) if ejercicios_ids is not None else None,
             ),
         )
 
@@ -487,7 +496,8 @@ def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
         filas = conn.execute(
             """
             SELECT rutina_id, xp_ganado, dificultad_promedio_rutina, n_ejercicios,
-                   zonas_json, objetivo, feedback_dificultad, duracion_segundos, completado_en
+                   zonas_json, objetivo, feedback_dificultad, duracion_segundos,
+                   ejercicios_ids_json, completado_en
             FROM interacciones_rutinas
             WHERE usuario_id = ? ORDER BY completado_en DESC LIMIT ?
             """,
@@ -496,6 +506,7 @@ def obtener_historial_rutinas(usuario_id: str, limite: int = 20) -> list[dict]:
         historial = [dict(f) for f in filas]
         for h in historial:
             h["zonas_json"] = json.loads(h["zonas_json"]) if h.get("zonas_json") else {}
+            h["ejercicios_ids"] = json.loads(h["ejercicios_ids_json"]) if h.get("ejercicios_ids_json") else []
         return historial
 
 

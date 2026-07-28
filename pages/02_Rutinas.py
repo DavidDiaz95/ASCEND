@@ -13,7 +13,7 @@ from utils_db import (
     MAX_RUTINAS_PERSONALIZADAS,
 )
 from utils_rutinas import (
-    EQUIPO_OPCIONES, ZONAS_MUSCULARES, OBJETIVOS,
+    EQUIPO_OPCIONES, CATEGORIAS_EQUIPO, ZONAS_MUSCULARES, OBJETIVOS,
     filtrar_ejercicios, ruta_gif, generar_menu_rutinas, generar_calentamiento,
     formatear_features_ejercicio, obtener_ejercicio_por_id, generar_menu_por_grupos,
     formatear_nombre_ejercicio,
@@ -138,12 +138,15 @@ def avanzar_a_siguiente_ejercicio() -> None:
 
 def finalizar_rutina(feedback: str) -> None:
     """Guarda la interacción completa (XP, dificultad, n_ejercicios, zonas,
-    objetivo, feedback Y duración real) y limpia el estado de ejecución."""
+    objetivo, feedback, duración real Y los ids exactos de ejercicios —
+    esto último es lo que le permite al generador rotar de verdad la
+    próxima vez) y limpia el estado de ejecución."""
     ejecucion = st.session_state["ejecucion"]
     secuencia = ejecucion["secuencia"]
     principales = [e for e in secuencia if e["tipo"] == "principal"]
     n_ejercicios = len(principales)
     zonas_json = dict(Counter(e["zona_muscular"] for e in principales))
+    ejercicios_ids = [e["id"] for e in principales]
     xp_ganado = int(ejecucion["dificultad_promedio_rutina"])
     duracion_segundos = int(time.time() - ejecucion.get("hora_inicio", time.time()))
 
@@ -152,7 +155,7 @@ def finalizar_rutina(feedback: str) -> None:
         dificultad_promedio_rutina=ejecucion["dificultad_promedio_rutina"],
         n_ejercicios=n_ejercicios, zonas_json=zonas_json,
         objetivo=ejecucion["objetivo"], feedback_dificultad=feedback,
-        duracion_segundos=duracion_segundos,
+        duracion_segundos=duracion_segundos, ejercicios_ids=ejercicios_ids,
     )
     print(
         f"[ASCEND][rutina_completada] usuario={st.session_state.get('username')} "
@@ -267,11 +270,19 @@ with col_equipo:
         equipo_guardado = ["peso corporal"]
 
     with st.expander("🧰 Tu equipo disponible", expanded=primera_vez_equipo):
-        st.caption("Selecciona todo lo que tengas acceso a usar.")
-        equipo_seleccionado = st.multiselect(
-            "Equipo disponible", options=EQUIPO_OPCIONES, default=equipo_guardado,
-            label_visibility="collapsed",
-        )
+        st.caption("Marca todo lo que tengas acceso a usar.")
+        equipo_seleccionado = []
+        for categoria, items in CATEGORIAS_EQUIPO.items():
+            st.markdown(f"**{categoria}**")
+            columnas_equipo = st.columns(3)
+            for i, item in enumerate(items):
+                with columnas_equipo[i % 3]:
+                    marcado = st.checkbox(
+                        item.capitalize(), value=item in equipo_guardado, key=f"equipo_chk_{item}",
+                    )
+                    if marcado:
+                        equipo_seleccionado.append(item)
+
         if st.button("Guardar mi equipo", type="primary"):
             guardar_equipo_usuario(usuario_id, equipo_seleccionado)
             st.session_state.pop("menu_rutinas_clave", None)
