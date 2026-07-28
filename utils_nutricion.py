@@ -81,7 +81,7 @@ def traducir_ingredientes_a_ingles(ingredientes: list[str]) -> list[str]:
         respuesta = client.chat.completions.create(
             model=MODELO_VISION,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
+            max_completion_tokens=300,
         )
         texto = respuesta.choices[0].message.content.strip()
     except Exception as e:
@@ -140,7 +140,7 @@ def identificar_ingredientes_de_foto(imagen_bytes: bytes) -> list[str]:
                     ],
                 }
             ],
-            max_tokens=500,
+            max_completion_tokens=500,
         )
         texto = respuesta.choices[0].message.content.strip()
     except Exception as e:
