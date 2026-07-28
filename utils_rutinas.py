@@ -13,7 +13,12 @@ Estructura confirmada del parquet (revisada directo con pandas):
   - media_id: string corto que arma el nombre del gif junto con id:
         Assets/ejercicios_media/videos/{id}-{media_id}.gif
   - zona_muscular: una de 7 categorías agregadas (Core, Tren inferior, etc.)
-  - dificultad_final: 'principiante' | 'intermedio' | 'experto'
+  - score_llm: dificultad continua 0-100, ÚNICA fuente de dificultad que usa
+    este módulo. `dificultad_final` (la etiqueta principiante/intermedio/
+    experto del catálogo) se ignora por completo: viene de un modelo
+    anterior entrenado con pocos datos (score ~0.3) y sesgaba las
+    recomendaciones. Los "tiers" que se muestran al usuario (ver
+    `clasificar_tier`) se recalculan aquí mismo a partir de score_llm.
 """
 
 from pathlib import Path
@@ -63,6 +68,25 @@ def ruta_gif(fila: pd.Series) -> Path:
     return RUTA_GIFS / f"{fila['id']}-{fila['media_id']}.gif"
 
 
+# Límites derivados directamente de la distribución real de score_llm en tu
+# catálogo (no de la etiqueta dificultad_final, que ya no se usa). Se
+# ubicaron en los saltos naturales de la escala: la mayoría de los valores
+# caen en bloques discretos (5, 8, 12, 18, 22, 24, 28, 38, 42, 45, 48, 52,
+# 58, 62, 68, 72, 74, 78, 88, 90) — 30 y 50 separan esos bloques en tres
+# grupos con sentido práctico (fácil / moderado / exigente).
+LIMITE_SUPERIOR_POR_TIER = {"principiante": 30, "intermedio": 50, "experto": 100}
+
+
+def clasificar_tier(score_llm: float) -> str:
+    """Etiqueta legible (solo para mostrarla al usuario) a partir del
+    score_llm continuo — reemplaza por completo a dificultad_final."""
+    if score_llm <= LIMITE_SUPERIOR_POR_TIER["principiante"]:
+        return "principiante"
+    if score_llm <= LIMITE_SUPERIOR_POR_TIER["intermedio"]:
+        return "intermedio"
+    return "experto"
+
+
 def filtrar_ejercicios(
     equipo_disponible: list[str],
     zona_muscular: str | None = None,
@@ -72,8 +96,14 @@ def filtrar_ejercicios(
     Filtra el catálogo por el equipo que el usuario tiene disponible (join
     simple porque equipment es un valor por fila, no una lista), y
     opcionalmente por zona muscular y tope de dificultad.
+
+    Siempre agrega las columnas `dificultad_continua` (= score_llm) y
+    `nivel` (etiqueta legible derivada de esa misma columna) al resultado,
+    para que cualquier consumidor (el explorador de catálogo, el generador
+    de rutinas) tenga disponible la misma información de dificultad sin
+    tener que recalcularla por su cuenta.
     """
-    df = cargar_catalogo()
+    df = cargar_catalogo().copy()
 
     if not equipo_disponible:
         return df.iloc[0:0]  # sin equipo seleccionado = sin resultados
@@ -83,9 +113,12 @@ def filtrar_ejercicios(
     if zona_muscular and zona_muscular != "Todas":
         df = df[df["zona_muscular"] == zona_muscular]
 
+    df["dificultad_continua"] = _obtener_dificultad_continua(df)
+    df["nivel"] = df["dificultad_continua"].map(clasificar_tier)
+
     if dificultad_max:
-        tope = ORDEN_DIFICULTAD[dificultad_max]
-        df = df[df["dificultad_final"].map(ORDEN_DIFICULTAD) <= tope]
+        tope = LIMITE_SUPERIOR_POR_TIER[dificultad_max]
+        df = df[df["dificultad_continua"] <= tope]
 
     return df
 
@@ -99,20 +132,9 @@ from datetime import datetime
 
 import numpy as np
 
-# Dificultad continua aproximada por tier — se usa SOLO si el catálogo no
-# trae una columna continua (score_llm). Si sí la trae, esa tiene prioridad
-# porque es más precisa que el punto medio del tier.
-DIFICULTAD_CONTINUA_POR_TIER = {"principiante": 25, "intermedio": 55, "experto": 85}
-
 # Rango de dificultad tolerable por cluster — mismo criterio ya usado en el
 # clasificador. Si el usuario todavía no tiene clasificación (tabla vacía,
 # como es el caso ahora mismo), se usa el default conservador.
-#
-# Bajados ~15 puntos respecto a la versión anterior — la sensación de
-# "rutinas muy difíciles" venía en parte del bug de similitud coseno (ya
-# corregido), pero el punto de partida también estaba alto. Es mejor
-# arrancar fácil y dejar que el tope progresivo + el feedback del usuario
-# empujen hacia arriba, que arrancar difícil y frustrar a alguien nuevo.
 RANGO_DIFICULTAD_POR_CLUSTER = {
     "Rendimiento Atlético Alto": (25, 75),
     "Contextura Ligera, Fuerza Limitada": (5, 50),
@@ -165,25 +187,17 @@ SERIES_POR_OBJETIVO = {
 
 def _obtener_dificultad_continua(df: pd.DataFrame) -> pd.Series:
     """
-    Dificultad continua 'segura': el MÁXIMO entre el punto medio del tier
-    (dificultad_final) y score_llm. Nunca el promedio, nunca solo uno de
-    los dos — la señal que diga que es más difícil, gana.
+    Dificultad continua 0-100 de cada ejercicio: directamente `score_llm`.
 
-    Por qué: revisamos el catálogo y encontramos ejercicios de calistenia
-    avanzada (front lever, full maltese, back lever, frog planche) tageados
-    dificultad_final='principiante' pero con score_llm de 78-96/100 — el
-    LLM sí detecta que son muy exigentes, la etiqueta de tier no. Al usar
-    el máximo, esos casos quedan correctamente marcados como difíciles sin
-    tener que re-etiquetar los 1324 registros a mano.
-
-    Además, score_llm por sí solo tiene muy poca dispersión (P75 ≈ 42/100
-    en todo el catálogo) — usarlo solo aplanaba la diferencia entre
-    rutinas fácil/difícil. El tier (25/55/85) le devuelve separación real.
+    ANTES esta función combinaba score_llm con la etiqueta dificultad_final
+    (tomando el máximo de ambas). Se quitó esa mezcla por completo:
+    dificultad_final salía de un modelo entrenado con muy pocos datos
+    (score de validación ~0.3) y estaba sesgando qué tan difícil parecía
+    cada ejercicio. score_llm es la señal limpia — se usa sola, sin mezclar
+    con nada más. Esto además hace el cálculo más liviano: una sola
+    columna, sin `.map()` ni `np.maximum()`.
     """
-    tier_medio = df["dificultad_final"].map(DIFICULTAD_CONTINUA_POR_TIER)
-    if "score_llm" in df.columns:
-        return np.maximum(tier_medio, df["score_llm"].fillna(tier_medio))
-    return tier_medio
+    return df["score_llm"]
 
 
 ALPHA_ZONA_VS_DIFICULTAD = 0.55  # 1.0 = ignora dificultad, 0.0 = ignora zona muscular
@@ -437,8 +451,8 @@ def _generar_variante(
     for ex in seleccionados:
         ejercicios_final.append({
             "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
-            "equipment": ex["equipment"], "dificultad_final": ex["dificultad_final"],
-            "score_llm": ex.get("score_llm"), "confianza_dificultad": ex.get("confianza_dificultad"),
+            "equipment": ex["equipment"],
+            "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
             "series": int(rng.integers(series_range[0], series_range[1] + 1)),
             "reps": int(rng.integers(reps_range[0], reps_range[1] + 1)),
@@ -596,12 +610,9 @@ def generar_calentamiento(
     tope_dificultad_calentamiento: float = 35.0,
 ) -> list[dict]:
     """
-    Ejercicios GENUINAMENTE ligeros de las mismas zonas que trabajará la
-    rutina principal. Ojo: no filtra solo por dificultad_final=='principiante'
-    — usa la dificultad continua "segura" (máximo entre tier y score_llm),
-    porque justo esa etiqueta es la que falla en calistenia avanzada (ver
-    _obtener_dificultad_continua). Sin este filtro, un "front lever" podría
-    colarse como calentamiento por venir tageado 'principiante'.
+    Ejercicios GENUINAMENTE ligeros (score_llm bajo) de las mismas zonas
+    que trabajará la rutina principal, para precalentar antes de exigir
+    de verdad.
     """
     df = cargar_catalogo().copy()
     df["dificultad_continua"] = _obtener_dificultad_continua(df)
@@ -624,8 +635,8 @@ def generar_calentamiento(
     for _, ex in muestra.iterrows():
         calentamiento.append({
             "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
-            "equipment": ex["equipment"], "dificultad_final": ex["dificultad_final"],
-            "score_llm": ex.get("score_llm"), "confianza_dificultad": ex.get("confianza_dificultad"),
+            "equipment": ex["equipment"],
+            "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
             "series": 2,
             "reps": 12, "gif_path": str(ruta_gif(ex)),
@@ -644,8 +655,8 @@ def obtener_ejercicio_por_id(ejercicio_id: str) -> dict | None:
     ex = fila.iloc[0]
     return {
         "id": ex["id"], "nombre": ex["name"], "zona_muscular": ex["zona_muscular"],
-        "equipment": ex["equipment"], "dificultad_final": ex["dificultad_final"],
-        "score_llm": ex.get("score_llm"), "confianza_dificultad": ex.get("confianza_dificultad"),
+        "equipment": ex["equipment"],
+        "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
         "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
         "gif_path": str(ruta_gif(ex)),
     }
@@ -653,12 +664,12 @@ def obtener_ejercicio_por_id(ejercicio_id: str) -> dict | None:
 
 def formatear_features_ejercicio(ejercicio: dict) -> str:
     """Texto corto con las características NUMÉRICAS del ejercicio — para
-    poder verificar a simple vista que el catálogo está bien etiquetado."""
-    partes = [f"Dificultad: {ejercicio.get('dificultad_final', '—')}"]
+    poder verificar a simple vista que el catálogo está bien etiquetado.
+    'nivel' se deriva de score_llm (ver clasificar_tier), no de la vieja
+    dificultad_final."""
+    partes = [f"Nivel: {ejercicio.get('nivel', '—')}"]
     if ejercicio.get("score_llm") is not None:
         partes.append(f"score {ejercicio['score_llm']}/100")
-    if ejercicio.get("confianza_dificultad") is not None:
-        partes.append(f"confianza {ejercicio['confianza_dificultad']:.2f}")
     if ejercicio.get("n_secondary") is not None:
         partes.append(f"{ejercicio['n_secondary']} músculo(s) secundario(s)")
     if ejercicio.get("similitud") is not None:
