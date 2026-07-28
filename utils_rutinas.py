@@ -293,7 +293,6 @@ def _pesos_zonas_balanceados(
 
 
 N_RUTINAS_CONFIANZA_TOTAL = 15
-PESO_EMPUJE_PROGRESION = 0.2
 
 # ---------------------------------------------------------------------------
 # TOPE DE DIFICULTAD PROGRESIVO — "asumir que son principiantes hasta que
@@ -310,81 +309,44 @@ def calcular_tope_dificultad(nivel_cluster_nombre: str | None, historial: list[d
     techo = obtener_techo_cluster(nivel_cluster_nombre, historial)
     n_completadas = calcular_metricas_historial(historial)["n_rutinas_completadas"]
     tope = TOPE_DIFICULTAD_INICIAL + INCREMENTO_TOPE_POR_RUTINA * n_completadas
-    # El tope nunca baja de 50 ni sube más allá del techo del cluster (que
-    # ahora sí puede expandirse con rachas de "fácil"), ni del máximo absoluto.
     return min(max(tope, TOPE_DIFICULTAD_INICIAL), techo, TOPE_DIFICULTAD_ABSOLUTO)
 
 
 # ---------------------------------------------------------------------------
-# FEEDBACK POST-RUTINA — "se me hizo fácil/bien/difícil" ajusta el nivel
-# dinámico de la SIGUIENTE recomendación, además del ajuste automático que
-# ya viene del historial de dificultades completadas.
+# AJUSTE DE DIFICULTAD POR FEEDBACK — regla asimétrica explícita:
+#   +2 puntos por cada 3 rutinas marcadas "fácil" (acumulado histórico,
+#     no solo las recientes) — subir es una búsqueda cautelosa.
+#   -2 puntos INMEDIATOS por cada rutina marcada "difícil" — bajar es una
+#     corrección rápida, no espera a acumular nada.
+#   "bien" no mueve nada.
+# Esta asimetría es intencional: converge rápido hacia abajo (para no
+# frustrar), y sube de a poco hacia arriba (para no sobrestimar). Como el
+# conteo de "fácil" es acumulado, en cuanto el nivel deja de sentirse fácil
+# el usuario empieza a responder "bien" y el ajuste se estabiliza solo —
+# es un lazo de búsqueda que converge, no un contador que crece para siempre.
 # ---------------------------------------------------------------------------
-AJUSTE_POR_FEEDBACK = {"facil": +8.0, "bien": 0.0, "dificil": -8.0}
-N_FEEDBACKS_RECIENTES = 3
-
-# ---------------------------------------------------------------------------
-# EXPANSIÓN DEL TECHO POR RACHA DE "FÁCIL" — el bug real que reportaste:
-# el rango de dificultad del cluster actuaba como techo FIJO para siempre.
-# Para dos de los cuatro clusters, ese techo ya era más bajo que el tope
-# inicial (50), así que ningún feedback ni ninguna cantidad de rutinas
-# completadas podía subir la dificultad — quedaba recortada contra el
-# techo del cluster desde el día uno.
-#
-# Ahora, cada UMBRAL_FACIL_CONSECUTIVO rutinas seguidas marcadas "fácil"
-# (por cantidad de rutinas, nunca por días) EXPANDEN el techo real en
-# EXPANSION_POR_FACIL_CONSECUTIVO puntos. La racha se cuenta desde la
-# rutina más reciente hacia atrás y se corta en cuanto aparece un
-# "bien"/"difícil" — así que un solo feedback distinto revierte la
-# expansión de inmediato (self-correcting).
-# ---------------------------------------------------------------------------
-UMBRAL_FACIL_CONSECUTIVO = 2
-EXPANSION_POR_FACIL_CONSECUTIVO = 10.0
-EXPANSION_MAXIMA = 40.0
+PUNTOS_POR_CADA_3_FACIL = 2.0
+RUTINAS_FACIL_POR_PASO = 3
+PUNTOS_POR_DIFICIL = 2.0
 
 
-def contar_facil_consecutivos(historial: list[dict] | None) -> int:
-    """Cuántas rutinas SEGUIDAS (empezando por la más reciente) fueron
-    marcadas 'facil'. Se corta en la primera que no lo sea — por eso es
-    'consecutivas', no un conteo total acumulado."""
-    contador = 0
-    for h in (historial or []):
-        if h.get("feedback_dificultad") == "facil":
-            contador += 1
-        else:
-            break
-    return contador
-
-
-def calcular_expansion_techo(historial: list[dict] | None) -> float:
-    """Cuánto se expande el techo de dificultad del cluster por rachas de
-    'fácil'. Se activa exactamente cada UMBRAL_FACIL_CONSECUTIVO rutinas
-    seguidas — con 2 fáciles ya sube, no hace falta esperar más."""
-    consecutivos = contar_facil_consecutivos(historial)
-    pares_completos = consecutivos // UMBRAL_FACIL_CONSECUTIVO
-    return min(pares_completos * EXPANSION_POR_FACIL_CONSECUTIVO, EXPANSION_MAXIMA)
+def calcular_ajuste_dificultad(historial: list[dict] | None) -> float:
+    if not historial:
+        return 0.0
+    n_facil = sum(1 for h in historial if h.get("feedback_dificultad") == "facil")
+    n_dificil = sum(1 for h in historial if h.get("feedback_dificultad") == "dificil")
+    ajuste_arriba = (n_facil // RUTINAS_FACIL_POR_PASO) * PUNTOS_POR_CADA_3_FACIL
+    ajuste_abajo = n_dificil * PUNTOS_POR_DIFICIL
+    return ajuste_arriba - ajuste_abajo
 
 
 def obtener_techo_cluster(nivel_cluster_nombre: str | None, historial: list[dict] | None) -> float:
     """El límite superior 'real' a usar en vez de RANGO_DIFICULTAD_POR_CLUSTER[...][1]
-    directo — el rango del cluster sigue siendo el punto de partida, pero
-    ya no es un techo permanente."""
+    directo — el rango del cluster es el punto de partida, pero el ajuste
+    por feedback (si es positivo) puede expandirlo más allá."""
     rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
-    return min(rango[1] + calcular_expansion_techo(historial), TOPE_DIFICULTAD_ABSOLUTO)
-
-
-def calcular_ajuste_por_feedback(historial: list[dict] | None) -> float:
-    """Promedio del ajuste de los últimos N feedbacks explícitos del
-    usuario. Si nunca ha dado feedback (o es un usuario nuevo), no ajusta
-    nada (0.0) — el sistema no debe inventar una tendencia que no existe."""
-    if not historial:
-        return 0.0
-    feedbacks = [h.get("feedback_dificultad") for h in historial if h.get("feedback_dificultad")]
-    if not feedbacks:
-        return 0.0
-    recientes = feedbacks[:N_FEEDBACKS_RECIENTES]
-    ajustes = [AJUSTE_POR_FEEDBACK.get(f, 0.0) for f in recientes]
-    return float(np.mean(ajustes))
+    expansion = max(calcular_ajuste_dificultad(historial), 0.0)
+    return min(rango[1] + expansion, TOPE_DIFICULTAD_ABSOLUTO)
 
 
 def calcular_metricas_historial(historial: list[dict] | None) -> dict:
@@ -408,31 +370,14 @@ def calcular_metricas_historial(historial: list[dict] | None) -> dict:
 
 
 def estimar_nivel_dinamico(nivel_cluster_nombre: str | None, historial: list[dict] | None) -> float:
-    """Punto medio del rango del cluster si no hay historial; se va
-    desplazando hacia el desempeño real conforme se acumulan rutinas
-    completadas, con un pequeño empuje de progresión hacia arriba, y un
-    ajuste adicional por el feedback explícito del usuario ("se me hizo
-    fácil/difícil"). El techo superior YA NO es fijo — se expande con
-    rachas de "fácil" (ver calcular_expansion_techo)."""
+    """Punto medio del rango del cluster, desplazado por el ajuste
+    asimétrico de feedback (ver calcular_ajuste_dificultad). El techo
+    superior YA NO es fijo — se expande cuando el ajuste es positivo."""
     rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
     techo = obtener_techo_cluster(nivel_cluster_nombre, historial)
     nivel_base_cluster = (rango[0] + rango[1]) / 2
 
-    metricas = calcular_metricas_historial(historial)
-    n_completadas = metricas["n_rutinas_completadas"]
-
-    if n_completadas == 0:
-        nivel_estimado = nivel_base_cluster
-    else:
-        peso_historial = min(n_completadas / N_RUTINAS_CONFIANZA_TOTAL, 1.0)
-        dificultad_promedio = metricas["dificultad_promedio_completada"]
-        dificultad_maxima = metricas["dificultad_maxima_completada"]
-
-        nivel_base_o_demostrado = (1 - peso_historial) * nivel_base_cluster + peso_historial * dificultad_promedio
-        empuje_progresion = PESO_EMPUJE_PROGRESION * (dificultad_maxima - dificultad_promedio)
-        nivel_estimado = nivel_base_o_demostrado + empuje_progresion
-
-    nivel_estimado += calcular_ajuste_por_feedback(historial)
+    nivel_estimado = nivel_base_cluster + calcular_ajuste_dificultad(historial)
 
     nivel_estimado = max(rango[0], min(nivel_estimado, techo))  # tope 1: techo expandible del cluster
     return round(min(nivel_estimado, 100), 1)  # tope 2: regla dura absoluta
@@ -464,23 +409,17 @@ def _generar_variante(
     entrenar SOLO esa zona, no una mezcla.
 
     IMPORTANTE: el tope de dificultad (calcular_tope_dificultad) es un
-    FILTRO DURO sobre los ejercicios candidatos, no solo una preferencia de
-    similitud coseno — así un ejercicio de 97/100 nunca puede colarse en la
-    rutina de un usuario nuevo aunque, por casualidad, sea el más "similar"
-    en zona muscular.
+    FILTRO DURO sobre los ejercicios candidatos — eso nunca se negocia.
+    `excluir_ids` (rotación), en cambio, es una PENALIZACIÓN SUAVE al score,
+    no un filtro: encontrar la dificultad correcta pesa más que variar los
+    ejercicios. Si el ejercicio recién usado sigue siendo, por mucho, el
+    que mejor encaja con el nivel objetivo, se puede repetir — la rotación
+    solo desempata entre opciones parecidas.
     """
     df = cargar_catalogo()
     disponibles = df[df["equipment"].isin(equipo_disponible)].copy()
     if zonas_forzadas:
         disponibles = disponibles[disponibles["zona_muscular"].isin(zonas_forzadas.keys())]
-
-    if excluir_ids:
-        disponibles_sin_recientes = disponibles[~disponibles["id"].isin(excluir_ids)]
-        # Salvaguarda: si con poco equipo la exclusión deja menos candidatos
-        # que ejercicios se necesitan, se ignora la exclusión — mejor repetir
-        # algún ejercicio que no poder armar la rutina completa.
-        if len(disponibles_sin_recientes) >= n_ejercicios:
-            disponibles = disponibles_sin_recientes
 
     if disponibles.empty:
         return {"rutina_id": None, "etiqueta": etiqueta, "ejercicios": [],
@@ -499,15 +438,21 @@ def _generar_variante(
                 "aviso": "No hay ejercicios lo bastante accesibles todavía con ese equipo."}
 
     nivel_dinamico_base = estimar_nivel_dinamico(nivel_cluster_nombre, historial)
-    nivel_dinamico = max(rango[0], min(nivel_dinamico_base + desplazamiento_dificultad, rango[1]))
-    nivel_dinamico = min(nivel_dinamico, tope_dificultad)  # el tope progresivo manda sobre todo lo demás
+    # OJO: el límite superior aquí es tope_dificultad, NO rango[1] — rango[1]
+    # es el techo SIN expandir; recortar contra él cancelaba el ajuste por
+    # feedback en cuanto se aplicaba un desplazamiento_dificultad != 0.
+    nivel_dinamico = max(rango[0], nivel_dinamico_base + desplazamiento_dificultad)
+    nivel_dinamico = min(nivel_dinamico, tope_dificultad)
 
     pesos_zonas = zonas_forzadas if zonas_forzadas else _pesos_zonas_balanceados(objetivo, frecuencia_zonas, peso_balance)
     dificultad_ideal_norm = nivel_dinamico / 100.0
 
     disponibles = disponibles.assign(
         similitud=_calcular_scores(disponibles, pesos_zonas, dificultad_ideal_norm)
-    ).sort_values("similitud", ascending=False)
+    )
+    if excluir_ids:
+        disponibles.loc[disponibles["id"].isin(excluir_ids), "similitud"] -= PENALIZACION_ROTACION
+    disponibles = disponibles.sort_values("similitud", ascending=False)
 
     seleccionados = []
     zona_anterior = None
@@ -603,19 +548,22 @@ VARIANTES_MENU = [
 
 
 # ---------------------------------------------------------------------------
-# ROTACIÓN DE EJERCICIOS — evita que la misma rutina "top score" salga
-# idéntica cada vez que se genera con los mismos parámetros. Se excluyen los
-# ejercicios principales de las últimas N_RUTINAS_EXCLUSION_ROTACION rutinas
-# COMPLETADAS (por cantidad de rutinas, nunca por fecha/día).
+# ROTACIÓN DE EJERCICIOS — preferencia suave, NO un filtro duro. Es
+# secundaria frente a encontrar la dificultad correcta: si el ejercicio
+# recién usado sigue siendo, con mucho, el que mejor encaja con el nivel
+# objetivo, se puede repetir. Se excluyen (con penalización, no filtro) los
+# ejercicios de las últimas N_RUTINAS_EXCLUSION_ROTACION rutinas COMPLETADAS
+# (por cantidad de rutinas, nunca por fecha/día).
 # ---------------------------------------------------------------------------
 N_RUTINAS_EXCLUSION_ROTACION = 2
+PENALIZACION_ROTACION = 0.08  # pequeño castigo al score, no una eliminación
 
 
 def obtener_ids_recientes(historial: list[dict] | None, n_rutinas: int = N_RUTINAS_EXCLUSION_ROTACION) -> set:
     """IDs de ejercicios principales usados en las últimas n_rutinas
     completadas (el historial ya viene ordenado del más reciente al más
-    viejo). Se usan como `excluir_ids` para que la siguiente rutina no
-    repita lo mismo que ya se hizo."""
+    viejo). Se usan como `excluir_ids` para preferir variedad, sin que eso
+    le gane nunca a encontrar la dificultad correcta."""
     ids = set()
     for h in (historial or [])[:n_rutinas]:
         ids.update(h.get("ejercicios_ids", []))
