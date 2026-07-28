@@ -152,6 +152,14 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         # específicos ya se repitieron.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN ejercicios_ids_json TEXT")
 
+    columnas_nutricion = {
+        fila["name"] for fila in conn.execute("PRAGMA table_info(interacciones_nutricion)").fetchall()
+    }
+    if "xp_ganado" not in columnas_nutricion:
+        # Sin esto, registrar una comida no sumaba nada al XP total — la
+        # sinergia con rutinas era solo de nombre, no funcionaba de verdad.
+        conn.execute("ALTER TABLE interacciones_nutricion ADD COLUMN xp_ganado INTEGER DEFAULT 0")
+
     _migrar_rutina_personalizada_a_multi_slot(conn)
 
 
@@ -388,23 +396,47 @@ def registrar_interaccion_rutina(
         )
 
 
-def registrar_interaccion_nutricion(usuario_id: str, tipo: str, detalle: dict) -> None:
+def registrar_interaccion_nutricion(usuario_id: str, tipo: str, detalle: dict, xp_ganado: int = 0) -> None:
     import json
 
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO interacciones_nutricion (usuario_id, tipo, detalle_json) VALUES (?, ?, ?)",
-            (usuario_id, tipo, json.dumps(detalle)),
+            "INSERT INTO interacciones_nutricion (usuario_id, tipo, detalle_json, xp_ganado) VALUES (?, ?, ?, ?)",
+            (usuario_id, tipo, json.dumps(detalle), xp_ganado),
         )
 
 
-def obtener_xp_total(usuario_id: str) -> int:
+def obtener_historial_nutricion(usuario_id: str, limite: int = 20) -> list[dict]:
+    import json
+
     with get_connection() as conn:
-        fila = conn.execute(
+        filas = conn.execute(
+            """
+            SELECT id, tipo, detalle_json, xp_ganado, registrado_en
+            FROM interacciones_nutricion
+            WHERE usuario_id = ? ORDER BY registrado_en DESC LIMIT ?
+            """,
+            (usuario_id, limite),
+        ).fetchall()
+        historial = [dict(f) for f in filas]
+        for h in historial:
+            h["detalle"] = json.loads(h["detalle_json"]) if h.get("detalle_json") else {}
+        return historial
+
+
+def obtener_xp_total(usuario_id: str) -> int:
+    """XP acumulado real: rutinas Y comidas confirmadas — la sinergia entre
+    ambos sistemas vive aquí. Antes solo sumaba interacciones_rutinas."""
+    with get_connection() as conn:
+        xp_rutinas = conn.execute(
             "SELECT COALESCE(SUM(xp_ganado), 0) AS xp FROM interacciones_rutinas WHERE usuario_id = ?",
             (usuario_id,),
-        ).fetchone()
-        return int(fila["xp"])
+        ).fetchone()["xp"]
+        xp_nutricion = conn.execute(
+            "SELECT COALESCE(SUM(xp_ganado), 0) AS xp FROM interacciones_nutricion WHERE usuario_id = ?",
+            (usuario_id,),
+        ).fetchone()["xp"]
+        return int(xp_rutinas) + int(xp_nutricion)
 
 
 # ---------------------------------------------------------------------------

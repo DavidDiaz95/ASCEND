@@ -1,6 +1,9 @@
 import streamlit as st
 
-from utils_db import obtener_xp_total, obtener_historial_rutinas, obtener_perfil, obtener_clasificacion
+from utils_db import (
+    obtener_xp_total, obtener_historial_rutinas, obtener_perfil, obtener_clasificacion,
+    obtener_historial_nutricion,
+)
 from utils_rutinas import calcular_ajuste_dificultad, calcular_tope_dificultad, obtener_techo_cluster
 
 st.set_page_config(page_title="ASCEND — Mi Progreso", page_icon="📈")
@@ -56,14 +59,44 @@ if historial:
 else:
     st.caption("Todavía no completas ninguna rutina — ¡anímate a hacer la primera!")
 
+st.divider()
+st.subheader("Historial de nutrición")
+historial_nutricion = obtener_historial_nutricion(usuario_id)
+if historial_nutricion:
+    calorias_registradas = [h["detalle"].get("calorias") for h in historial_nutricion if h["detalle"].get("calorias")]
+    xp_nutricion_total = sum(h["xp_ganado"] for h in historial_nutricion)
+
+    col_comidas, col_calorias, col_xp_nutricion = st.columns(3)
+    with col_comidas:
+        st.metric("Comidas registradas", len(historial_nutricion))
+    with col_calorias:
+        promedio_calorias = round(sum(calorias_registradas) / len(calorias_registradas)) if calorias_registradas else "—"
+        st.metric("Calorías promedio/comida", promedio_calorias)
+    with col_xp_nutricion:
+        st.metric("XP ganado en nutrición", xp_nutricion_total)
+
+    filas_tabla = [
+        {
+            "Fecha": h["registrado_en"], "Comida": h["detalle"].get("titulo", "—"),
+            "Calorías": h["detalle"].get("calorias", "—"), "Proteína (g)": h["detalle"].get("proteina_g", "—"),
+            "XP": h["xp_ganado"],
+        }
+        for h in historial_nutricion
+    ]
+    st.dataframe(filas_tabla, use_container_width=True)
+else:
+    st.caption("Todavía no registras ninguna comida — ve a Nutrición para buscar opciones.")
+
 # ═══════════════════════════════════════════════════════════════════════════
 # RESERVADO — EN DESARROLLO
 # ═══════════════════════════════════════════════════════════════════════════
 # Piezas que faltan (ver roadmap):
-#   1. Gráfica de XP en el tiempo (Plotly, línea acumulada por semana).
+#   1. Gráfica de XP en el tiempo (Plotly, línea acumulada por semana,
+#      separando rutinas vs. nutrición para ver de dónde viene el progreso).
 #   2. Sistema de niveles: definir tabla xp_por_nivel y mostrar barra de
 #      progreso hacia el siguiente nivel (esto es lo único visible al
 #      usuario — nunca el nombre del clúster).
-#   3. Resumen de nutrición una vez que exista 03_Nutricion.py funcional.
+#   3. Preferencias/restricciones nutricionales del usuario (vegetariano,
+#      alergias, meta calórica) — la "tabla de clientes" de dietas.
 # ═══════════════════════════════════════════════════════════════════════════
 st.info("🚧 Gráficas de progreso y sistema de niveles — próxima pieza a desarrollar.")
