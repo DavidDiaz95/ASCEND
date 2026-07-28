@@ -13,7 +13,7 @@ from utils_db import (
 from utils_rutinas import (
     EQUIPO_OPCIONES, ZONAS_MUSCULARES, OBJETIVOS,
     filtrar_ejercicios, ruta_gif, generar_menu_rutinas, generar_calentamiento,
-    formatear_features_ejercicio, obtener_ejercicio_por_id,
+    formatear_features_ejercicio, obtener_ejercicio_por_id, generar_menu_por_grupos,
 )
 
 st.set_page_config(page_title="ASCEND — Rutinas", page_icon="🏋️")
@@ -59,6 +59,24 @@ def descanso_html(duracion_seg: int = 60) -> str:
     """
 
 
+def iniciar_ejecucion(rutina: dict, equipo_activo: list[str]) -> None:
+    calentamiento = generar_calentamiento(equipo_activo, list(rutina["zonas_contadas"].keys()))
+    secuencia = (
+        [{"tipo": "calentamiento", **ex} for ex in calentamiento]
+        + [{"tipo": "principal", **ex} for ex in rutina["ejercicios"]]
+    )
+    st.session_state["ejecucion"] = {
+        "rutina_id": rutina["rutina_id"],
+        "etiqueta": rutina["etiqueta"],
+        "objetivo": rutina["objetivo"],
+        "dificultad_promedio_rutina": rutina["dificultad_promedio_rutina"],
+        "secuencia": secuencia,
+        "indice": 0,
+        "fase": "ejercicio",
+    }
+    st.rerun()
+
+
 def finalizar_rutina(feedback: str) -> None:
     """Guarda la interacción completa (XP, dificultad, n_ejercicios, zonas,
     objetivo Y el feedback del usuario) y limpia el estado de ejecución."""
@@ -83,6 +101,7 @@ def finalizar_rutina(feedback: str) -> None:
     st.session_state["rutina_completada_xp"] = xp_ganado
     del st.session_state["ejecucion"]
     st.session_state.pop("menu_rutinas_clave", None)  # se regenera con el nuevo historial/feedback
+    st.session_state.pop("menu_grupos_clave", None)
     st.rerun()
 
 
@@ -188,6 +207,7 @@ with st.expander("🧰 Tu equipo disponible", expanded=primera_vez_equipo):
     if st.button("Guardar mi equipo", type="primary"):
         guardar_equipo_usuario(usuario_id, equipo_seleccionado)
         st.session_state.pop("menu_rutinas_clave", None)
+        st.session_state.pop("menu_grupos_clave", None)
         st.success("¡Equipo actualizado!")
         st.rerun()
 
@@ -261,21 +281,40 @@ else:
                 st.caption(f"Zonas: {zonas_resumen}")
             with col_boton:
                 if st.button("▶️ Empezar", key=f"empezar_{rutina['rutina_id']}", use_container_width=True):
-                    calentamiento = generar_calentamiento(equipo_activo, list(rutina["zonas_contadas"].keys()))
-                    secuencia = (
-                        [{"tipo": "calentamiento", **ex} for ex in calentamiento]
-                        + [{"tipo": "principal", **ex} for ex in rutina["ejercicios"]]
-                    )
-                    st.session_state["ejecucion"] = {
-                        "rutina_id": rutina["rutina_id"],
-                        "etiqueta": rutina["etiqueta"],
-                        "objetivo": rutina["objetivo"],
-                        "dificultad_promedio_rutina": rutina["dificultad_promedio_rutina"],
-                        "secuencia": secuencia,
-                        "indice": 0,
-                        "fase": "ejercicio",
-                    }
-                    st.rerun()
+                    iniciar_ejecucion(rutina, equipo_activo)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# RUTINAS POR GRUPO MUSCULAR — un "día" enfocado en una sola zona, para
+# armar tu propio split (empuje / tracción / pierna / core / cardio) en vez
+# de siempre cuerpo completo.
+# ---------------------------------------------------------------------------
+st.subheader("💪 Rutinas por grupo muscular")
+st.caption("Un día enfocado en una sola zona — arma tu propio split (ej. empuje lunes, tracción miércoles, pierna viernes).")
+
+clave_grupos_actual = tuple(sorted(equipo_activo))
+if st.session_state.get("menu_grupos_clave") != clave_grupos_actual:
+    clasificacion = obtener_clasificacion(usuario_id)
+    nivel_cluster_nombre = clasificacion["nivel_cluster_nombre"] if clasificacion else None
+    historial = obtener_historial_rutinas(usuario_id)
+    st.session_state["menu_grupos"] = generar_menu_por_grupos(equipo_activo, nivel_cluster_nombre, historial=historial)
+    st.session_state["menu_grupos_clave"] = clave_grupos_actual
+
+menu_grupos = st.session_state.get("menu_grupos", [])
+
+if not menu_grupos:
+    st.info("No se encontraron rutinas por grupo con tu equipo actual.")
+else:
+    for rutina in menu_grupos:
+        with st.container(border=True):
+            col_titulo, col_boton = st.columns([2.5, 1])
+            with col_titulo:
+                st.markdown(f"**{rutina['etiqueta']}**")
+                st.caption(f"{len(rutina['ejercicios'])} ejercicios · dificultad {rutina['dificultad_promedio_rutina']}/100")
+            with col_boton:
+                if st.button("▶️ Empezar", key=f"empezar_grupo_{rutina['rutina_id']}", use_container_width=True):
+                    iniciar_ejecucion(rutina, equipo_activo)
 
 st.divider()
 

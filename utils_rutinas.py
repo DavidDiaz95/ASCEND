@@ -107,13 +107,19 @@ DIFICULTAD_CONTINUA_POR_TIER = {"principiante": 25, "intermedio": 55, "experto":
 # Rango de dificultad tolerable por cluster — mismo criterio ya usado en el
 # clasificador. Si el usuario todavía no tiene clasificación (tabla vacía,
 # como es el caso ahora mismo), se usa el default conservador.
+#
+# Bajados ~15 puntos respecto a la versión anterior — la sensación de
+# "rutinas muy difíciles" venía en parte del bug de similitud coseno (ya
+# corregido), pero el punto de partida también estaba alto. Es mejor
+# arrancar fácil y dejar que el tope progresivo + el feedback del usuario
+# empujen hacia arriba, que arrancar difícil y frustrar a alguien nuevo.
 RANGO_DIFICULTAD_POR_CLUSTER = {
-    "Rendimiento Atlético Alto": (35, 90),
-    "Contextura Ligera, Fuerza Limitada": (15, 65),
-    "Contextura Ligera, Buena Eficiencia": (20, 75),
-    "Composición Corporal Elevada": (10, 55),
+    "Rendimiento Atlético Alto": (25, 75),
+    "Contextura Ligera, Fuerza Limitada": (5, 50),
+    "Contextura Ligera, Buena Eficiencia": (10, 60),
+    "Composición Corporal Elevada": (5, 40),
 }
-RANGO_DEFAULT_SIN_CLASIFICACION = (20, 60)
+RANGO_DEFAULT_SIN_CLASIFICACION = (10, 45)
 
 # Perfil de zonas "ideal" por objetivo — cuánto debería pesar cada zona en la
 # rutina, y en qué punto de su rango de dificultad debería ubicarse (0=bajo
@@ -256,7 +262,7 @@ PESO_EMPUJE_PROGRESION = 0.2
 # sin importar lo que diga su cluster; el tope sube poco a poco según
 # rutinas completadas REALES, no según una sola clasificación de día uno.
 # ---------------------------------------------------------------------------
-TOPE_DIFICULTAD_INICIAL = 70.0
+TOPE_DIFICULTAD_INICIAL = 50.0
 INCREMENTO_TOPE_POR_RUTINA = 3.0
 TOPE_DIFICULTAD_ABSOLUTO = 100.0
 
@@ -354,6 +360,7 @@ def _generar_variante(
     frecuencia_zonas: dict | None = None,
     etiqueta: str = "Recomendada",
     excluir_ids: set | None = None,
+    zonas_forzadas: dict | None = None,
 ) -> dict:
     """
     Núcleo del generador. `desplazamiento_dificultad` mueve el nivel
@@ -362,7 +369,10 @@ def _generar_variante(
     que reentrenar nada — es el mismo motor de similitud coseno, solo
     apuntando a un punto distinto de dificultad. `peso_balance` alto ignora
     casi todo el objetivo y prioriza llenar las zonas musculares que el
-    usuario tiene descuidadas.
+    usuario tiene descuidadas. `zonas_forzadas` (si se da) IGNORA el
+    objetivo y el balance por completo — se usa para las rutinas "por
+    grupo muscular" (día de empuje, de piernas, etc.), donde se quiere
+    entrenar SOLO esa zona, no una mezcla.
 
     IMPORTANTE: el tope de dificultad (calcular_tope_dificultad) es un
     FILTRO DURO sobre los ejercicios candidatos, no solo una preferencia de
@@ -374,6 +384,8 @@ def _generar_variante(
     disponibles = df[df["equipment"].isin(equipo_disponible)].copy()
     if excluir_ids:
         disponibles = disponibles[~disponibles["id"].isin(excluir_ids)]
+    if zonas_forzadas:
+        disponibles = disponibles[disponibles["zona_muscular"].isin(zonas_forzadas.keys())]
 
     if disponibles.empty:
         return {"rutina_id": None, "etiqueta": etiqueta, "ejercicios": [],
@@ -395,7 +407,7 @@ def _generar_variante(
     nivel_dinamico = max(rango[0], min(nivel_dinamico_base + desplazamiento_dificultad, rango[1]))
     nivel_dinamico = min(nivel_dinamico, tope_dificultad)  # el tope progresivo manda sobre todo lo demás
 
-    pesos_zonas = _pesos_zonas_balanceados(objetivo, frecuencia_zonas, peso_balance)
+    pesos_zonas = zonas_forzadas if zonas_forzadas else _pesos_zonas_balanceados(objetivo, frecuencia_zonas, peso_balance)
     dificultad_ideal_norm = nivel_dinamico / 100.0
 
     disponibles = disponibles.assign(
@@ -528,6 +540,55 @@ def generar_menu_rutinas(
 
     variantes.sort(key=lambda v: v["similitud_promedio"], reverse=True)
     return variantes
+
+
+# ---------------------------------------------------------------------------
+# RUTINAS POR GRUPO MUSCULAR ("split") — estructura de entrenamiento
+# estándar (día de empuje / tracción / pierna / core / cardio), no un
+# programa de ningún autor en particular. Se llena con TU catálogo, no con
+# contenido bajado de internet.
+# ---------------------------------------------------------------------------
+DIAS_POR_GRUPO_MUSCULAR = {
+    "Empuje superior": "💪 Día de empuje",
+    "Tracción superior": "🎣 Día de tracción",
+    "Tren inferior": "🦵 Día de pierna",
+    "Core": "🔥 Día de core",
+    "Cardio": "🏃 Día de cardio",
+}
+
+
+def generar_rutina_por_grupo(
+    equipo_disponible: list[str],
+    zona: str,
+    nivel_cluster_nombre: str | None,
+    historial: list[dict] | None = None,
+    n_ejercicios: int = 6,
+) -> dict:
+    """Una rutina enfocada 100% en una sola zona muscular — un 'día' de
+    split, en vez de cuerpo completo."""
+    etiqueta = DIAS_POR_GRUPO_MUSCULAR.get(zona, zona)
+    return _generar_variante(
+        equipo_disponible, objetivo="Salud general", nivel_cluster_nombre=nivel_cluster_nombre,
+        historial=historial, n_ejercicios=n_ejercicios, etiqueta=etiqueta,
+        zonas_forzadas={zona: 1.0},
+    )
+
+
+def generar_menu_por_grupos(
+    equipo_disponible: list[str],
+    nivel_cluster_nombre: str | None,
+    historial: list[dict] | None = None,
+    n_ejercicios: int = 6,
+) -> list[dict]:
+    """Una rutina por cada grupo muscular disponible con tu equipo actual —
+    para armar tu propio split (ej. empuje lunes, tracción miércoles,
+    pierna viernes) en vez de siempre cuerpo completo."""
+    rutinas = []
+    for zona in DIAS_POR_GRUPO_MUSCULAR:
+        rutina = generar_rutina_por_grupo(equipo_disponible, zona, nivel_cluster_nombre, historial, n_ejercicios)
+        if rutina["ejercicios"]:
+            rutinas.append(rutina)
+    return rutinas
 
 
 def generar_calentamiento(
