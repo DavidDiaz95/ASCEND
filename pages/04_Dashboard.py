@@ -9,6 +9,7 @@ from utils_rutinas import calcular_ajuste_dificultad, calcular_tope_dificultad, 
 from utils_dashboard import (
     calcular_serie_xp_acumulado, calcular_balance_muscular, calcular_distribucion_objetivos,
     calcular_balance_nutricional, obtener_ejercicio_favorito, calcular_evolucion_dificultad,
+    calcular_minutos_entrenados_por_semana,
 )
 
 st.set_page_config(page_title="ASCEND — Mi Progreso", page_icon="📈", layout="wide")
@@ -22,12 +23,19 @@ if not st.session_state.get("usuario_id"):
 usuario_id = st.session_state["usuario_id"]
 
 # ---------------------------------------------------------------------------
-# COLORES DE MARCA (mismos que Rutinas/Nutrición)
+# PALETA REAL DE ASCEND (OKLCH oficial, convertida a hex) + tonos derivados
+# del MISMO matiz (150°) para series secundarias — nada de colores ajenos
+# al branding.
 # ---------------------------------------------------------------------------
-VERDE_PRIMARIO = "#006a20"
-VERDE_CLARO = "#3ea85c"
-NARANJA = "#e0862a"
-TEXTO_OSCURO = "#141d16"
+VERDE_PRIMARIO = "#006a20"   # oklch(0.45 0.15 150) — oficial
+VERDE_MEDIO = "#20a04e"      # derivado, mismo matiz, L=0.62 — series secundarias
+VERDE_SUAVE = "#8ec899"      # derivado, mismo matiz, L=0.78 — acentos terciarios
+VERDE_CLARO = "#d8efdc"      # oklch(0.93 0.035 150) — oficial, para rellenos
+CASI_NEGRO = "#141d16"       # oklch(0.22 0.02 150) — oficial, texto
+FONDO = "#f2f6f3"            # oklch(0.97 0.006 150) — oficial, fondo de gráficas
+GRIS_VERDE = "#c7d1c9"       # derivado, mismo matiz, L=0.85 — rejillas/ejes
+
+FUENTE = dict(family="sans-serif", color=CASI_NEGRO)
 
 
 def encabezado_seccion(texto: str, color: str = VERDE_PRIMARIO) -> None:
@@ -42,24 +50,38 @@ def encabezado_seccion(texto: str, color: str = VERDE_PRIMARIO) -> None:
     )
 
 
-def grafico_radar(categorias: list[str], valores: list[float], color: str, titulo: str, valor_max: float | None = None):
+def _layout_base(fig: go.Figure, **kwargs) -> go.Figure:
+    """Estilo compartido por todas las gráficas — fondo, tipografía y
+    márgenes consistentes, para que se sientan parte de la misma app."""
+    kwargs.setdefault("margin", dict(l=40, r=30, t=40, b=40))
+    fig.update_layout(plot_bgcolor=FONDO, paper_bgcolor=FONDO, font=FUENTE, **kwargs)
+    return fig
+
+
+def grafico_radar(categorias: list[str], valores: list[float], color_linea: str, color_relleno: str,
+                   titulo: str, valor_max: float | None = None, altura: int = 340):
     cats_cerrado = categorias + [categorias[0]]
     vals_cerrado = valores + [valores[0]]
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
         r=vals_cerrado, theta=cats_cerrado, fill="toself",
-        line=dict(color=color, width=2), fillcolor=color.replace(")", ", 0.35)").replace("rgb", "rgba"),
-        name=titulo,
+        line=dict(color=color_linea, width=2.5), fillcolor=color_relleno,
+        marker=dict(size=6, color=color_linea),
     ))
     fig.update_layout(
-        polar=dict(radialaxis=dict(visible=True, range=[0, valor_max] if valor_max else None)),
-        showlegend=False, title=dict(text=titulo, x=0.5, font=dict(color=TEXTO_OSCURO, size=15)),
-        margin=dict(l=40, r=40, t=50, b=20), height=340,
+        polar=dict(
+            bgcolor=FONDO,
+            radialaxis=dict(visible=True, range=[0, valor_max] if valor_max else None,
+                             gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE),
+            angularaxis=dict(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, tickfont=dict(color=CASI_NEGRO, size=11)),
+        ),
+        showlegend=False, title=dict(text=titulo, x=0.5, font=dict(color=CASI_NEGRO, size=15)),
+        height=altura,
     )
-    return fig
+    return _layout_base(fig, margin=dict(l=30, r=30, t=55, b=20))
 
 
-st.markdown(f"<h1 style='color: {TEXTO_OSCURO};'>📈 Mi Progreso</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='color: {CASI_NEGRO};'>📈 Mi Progreso</h1>", unsafe_allow_html=True)
 
 # [HIDDEN] Perfilador del Usuario — funcional, no decorativo. Se deja
 # colapsado y sin explicación a propósito.
@@ -99,56 +121,76 @@ with col_perfil:
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1. XP ACUMULADO — área apilada, rutinas vs. nutrición
+# FILA 1 (1:1) — XP acumulado | Evolución de la dificultad
 # ═══════════════════════════════════════════════════════════════════════════
-encabezado_seccion("📊 XP acumulado — de dónde viene tu progreso")
+col_xp_area, col_evol = st.columns([1, 1])
 
-serie_xp = calcular_serie_xp_acumulado(historial_rutinas, historial_nutricion)
-if len(serie_xp) >= 1 and (serie_xp["xp_rutinas_acumulado"].iloc[-1] > 0 or serie_xp["xp_nutricion_acumulado"].iloc[-1] > 0):
-    fig_xp = go.Figure()
-    fig_xp.add_trace(go.Scatter(
-        x=serie_xp["fecha"], y=serie_xp["xp_rutinas_acumulado"], mode="lines", name="Rutinas",
-        line=dict(color=VERDE_PRIMARIO, width=2.5), fill="tozeroy",
-        fillcolor="rgba(0, 106, 32, 0.35)", stackgroup="xp",
-    ))
-    fig_xp.add_trace(go.Scatter(
-        x=serie_xp["fecha"], y=serie_xp["xp_nutricion_acumulado"], mode="lines", name="Nutrición",
-        line=dict(color=NARANJA, width=2.5), fill="tonexty",
-        fillcolor="rgba(224, 134, 42, 0.35)", stackgroup="xp",
-    ))
-    fig_xp.update_layout(
-        height=340, margin=dict(l=40, r=20, t=20, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis_title="XP acumulado", xaxis_title=None,
-        plot_bgcolor="white", paper_bgcolor="white",
-        font=dict(color=TEXTO_OSCURO),
-    )
-    st.plotly_chart(fig_xp, use_container_width=True)
-else:
-    st.info("Completa rutinas o confirma comidas para ver aquí tu progreso de XP en el tiempo.")
+with col_xp_area:
+    encabezado_seccion("📊 XP acumulado — de dónde viene tu progreso")
+    serie_xp = calcular_serie_xp_acumulado(historial_rutinas, historial_nutricion)
+    if len(serie_xp) >= 1 and (serie_xp["xp_rutinas_acumulado"].iloc[-1] > 0 or serie_xp["xp_nutricion_acumulado"].iloc[-1] > 0):
+        fig_xp = go.Figure()
+        fig_xp.add_trace(go.Scatter(
+            x=serie_xp["fecha"], y=serie_xp["xp_rutinas_acumulado"], mode="lines", name="Rutinas",
+            line=dict(color=VERDE_PRIMARIO, width=2.5, shape="spline"), fill="tozeroy",
+            fillcolor="rgba(0, 106, 32, 0.35)", stackgroup="xp",
+        ))
+        fig_xp.add_trace(go.Scatter(
+            x=serie_xp["fecha"], y=serie_xp["xp_nutricion_acumulado"], mode="lines", name="Nutrición",
+            line=dict(color=VERDE_MEDIO, width=2.5, shape="spline"), fill="tonexty",
+            fillcolor="rgba(32, 160, 78, 0.35)", stackgroup="xp",
+        ))
+        fig_xp.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE)
+        fig_xp.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="XP acumulado")
+        _layout_base(
+            fig_xp, height=360,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_xp, use_container_width=True)
+    else:
+        st.info("Completa rutinas o confirma comidas para ver aquí tu progreso de XP en el tiempo.")
+
+with col_evol:
+    encabezado_seccion("📈 Evolución de la dificultad", color=CASI_NEGRO)
+    evolucion = calcular_evolucion_dificultad(historial_rutinas)
+    if not evolucion.empty:
+        fig_evol = go.Figure()
+        fig_evol.add_trace(go.Scatter(
+            x=evolucion["indice"], y=evolucion["dificultad"], mode="lines+markers",
+            line=dict(color=VERDE_PRIMARIO, width=2.5, shape="spline"),
+            marker=dict(size=8, color=VERDE_PRIMARIO, line=dict(color="white", width=1)),
+            fill="tozeroy", fillcolor="rgba(0, 106, 32, 0.15)",
+        ))
+        fig_evol.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Rutina completada #")
+        fig_evol.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Dificultad promedio")
+        _layout_base(fig_evol, height=360)
+        st.plotly_chart(fig_evol, use_container_width=True)
+    else:
+        st.info("Completa rutinas para ver aquí cómo va subiendo tu dificultad.")
 
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2. BALANCE MUSCULAR (radar) | TIPOS DE RUTINA MÁS ENTRENADOS (radar)
+# FILA 2 (2:1) — Balance muscular (grande, izquierda) | Tipos de rutina +
+# Balance nutricional apilados (derecha, cada uno la mitad de alto)
 # ═══════════════════════════════════════════════════════════════════════════
-col_radar1, col_radar2 = st.columns(2)
+col_muscular, col_derecha = st.columns([2, 1])
 
-with col_radar1:
+with col_muscular:
     balance_muscular = calcular_balance_muscular(historial_rutinas)
     if any(balance_muscular.values()):
         fig = grafico_radar(
             list(balance_muscular.keys()), list(balance_muscular.values()),
-            color="rgb(0, 106, 32)", titulo="💪 Balance muscular",
+            color_linea=VERDE_PRIMARIO, color_relleno="rgba(0, 106, 32, 0.35)",
+            titulo="💪 Balance muscular", altura=620,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Completa rutinas para ver aquí qué zonas musculares entrenas más.")
 
-with col_radar2:
+with col_derecha:
     distribucion_objetivos = calcular_distribucion_objetivos(historial_rutinas)
     if any(distribucion_objetivos.values()):
-        # Nombres cortos para que quepan bien en el radar
         etiquetas_cortas = {
             "Bajar de peso": "Bajar peso", "Ganar músculo": "Ganar músculo", "Ganar fuerza": "Ganar fuerza",
             "Mejorar resistencia/cardio": "Resistencia", "Salud general": "Salud general",
@@ -156,44 +198,19 @@ with col_radar2:
         categorias = [etiquetas_cortas[k] for k in distribucion_objetivos]
         fig = grafico_radar(
             categorias, list(distribucion_objetivos.values()),
-            color="rgb(62, 168, 92)", titulo="🎯 Tipos de rutina más entrenados",
+            color_linea=VERDE_MEDIO, color_relleno="rgba(32, 160, 78, 0.35)",
+            titulo="🎯 Tipos de rutina", altura=290,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Completa rutinas para ver qué objetivos entrenas más seguido.")
 
-st.divider()
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 3. EVOLUCIÓN DE LA DIFICULTAD | BALANCE NUTRICIONAL (radar)
-# ═══════════════════════════════════════════════════════════════════════════
-col_evol, col_nutri = st.columns(2)
-
-with col_evol:
-    encabezado_seccion("📈 Evolución de la dificultad", color=TEXTO_OSCURO)
-    evolucion = calcular_evolucion_dificultad(historial_rutinas)
-    if not evolucion.empty:
-        fig_evol = go.Figure()
-        fig_evol.add_trace(go.Scatter(
-            x=evolucion["indice"], y=evolucion["dificultad"], mode="lines+markers",
-            line=dict(color=VERDE_PRIMARIO, width=2.5), marker=dict(size=7, color=VERDE_PRIMARIO),
-            fill="tozeroy", fillcolor="rgba(0, 106, 32, 0.15)",
-        ))
-        fig_evol.update_layout(
-            height=340, margin=dict(l=40, r=20, t=10, b=40),
-            xaxis_title="Rutina completada #", yaxis_title="Dificultad promedio",
-            plot_bgcolor="white", paper_bgcolor="white", font=dict(color=TEXTO_OSCURO),
-        )
-        st.plotly_chart(fig_evol, use_container_width=True)
-    else:
-        st.info("Completa rutinas para ver aquí cómo va subiendo tu dificultad.")
-
-with col_nutri:
     balance_nutricional = calcular_balance_nutricional(historial_nutricion, perfil)
     if balance_nutricional:
         fig = grafico_radar(
             list(balance_nutricional.keys()), list(balance_nutricional.values()),
-            color="rgb(224, 134, 42)", titulo="🥗 Balance nutricional (% de tu meta)", valor_max=150,
+            color_linea=VERDE_SUAVE, color_relleno="rgba(142, 200, 153, 0.45)",
+            titulo="🥗 Balance nutricional (%)", valor_max=150, altura=290,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -202,9 +219,30 @@ with col_nutri:
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 4. EJERCICIO FAVORITO
+# FILA 3 — Minutos entrenados por semana (nueva, usa duracion_segundos)
 # ═══════════════════════════════════════════════════════════════════════════
-encabezado_seccion("⭐ Tu ejercicio favorito", color=TEXTO_OSCURO)
+encabezado_seccion("⏱️ Minutos entrenados por semana", color=CASI_NEGRO)
+minutos_semana = calcular_minutos_entrenados_por_semana(historial_rutinas)
+if not minutos_semana.empty:
+    fig_minutos = go.Figure()
+    fig_minutos.add_trace(go.Bar(
+        x=minutos_semana["semana"], y=minutos_semana["minutos"],
+        marker=dict(color=VERDE_PRIMARIO, line=dict(color=VERDE_MEDIO, width=1)),
+        text=minutos_semana["minutos"].round().astype(int), textposition="outside",
+    ))
+    fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Semana (lunes de inicio)")
+    fig_minutos.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Minutos entrenados")
+    _layout_base(fig_minutos, height=320, showlegend=False)
+    st.plotly_chart(fig_minutos, use_container_width=True)
+else:
+    st.info("Completa rutinas para ver aquí cuántos minutos entrenas cada semana.")
+
+st.divider()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EJERCICIO FAVORITO
+# ═══════════════════════════════════════════════════════════════════════════
+encabezado_seccion("⭐ Tu ejercicio favorito", color=CASI_NEGRO)
 favorito = obtener_ejercicio_favorito(historial_rutinas)
 if favorito:
     col_fav1, col_fav2, col_fav3 = st.columns(3)

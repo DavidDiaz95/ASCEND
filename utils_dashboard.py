@@ -150,3 +150,22 @@ def calcular_evolucion_dificultad(historial_rutinas: list[dict]) -> pd.DataFrame
         if h.get("dificultad_promedio_rutina") is not None
     ]
     return pd.DataFrame(filas)
+
+
+# ---------------------------------------------------------------------------
+# 7. MINUTOS ENTRENADOS POR SEMANA — dato que ya se guarda (duracion_segundos)
+# desde hace varias iteraciones, pero nunca se había mostrado en ningún lado.
+# ---------------------------------------------------------------------------
+def calcular_minutos_entrenados_por_semana(historial_rutinas: list[dict]) -> pd.DataFrame:
+    filas = []
+    for h in historial_rutinas:
+        if h.get("duracion_segundos"):
+            fecha = pd.to_datetime(h["completado_en"])
+            inicio_semana = (fecha - pd.Timedelta(days=fecha.weekday())).strftime("%Y-%m-%d")
+            filas.append({"semana": inicio_semana, "minutos": h["duracion_segundos"] / 60})
+
+    if not filas:
+        return pd.DataFrame(columns=["semana", "minutos"])
+
+    df = pd.DataFrame(filas)
+    return df.groupby("semana")["minutos"].sum().reset_index().sort_values("semana")
