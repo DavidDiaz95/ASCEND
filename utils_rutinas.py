@@ -313,20 +313,15 @@ def calcular_tope_dificultad(nivel_cluster_nombre: str | None, historial: list[d
 
 
 # ---------------------------------------------------------------------------
-# AJUSTE DE DIFICULTAD POR FEEDBACK — regla asimétrica explícita:
-#   +2 puntos por cada 3 rutinas marcadas "fácil" (acumulado histórico,
-#     no solo las recientes) — subir es una búsqueda cautelosa.
-#   -2 puntos INMEDIATOS por cada rutina marcada "difícil" — bajar es una
-#     corrección rápida, no espera a acumular nada.
+# AJUSTE DE DIFICULTAD POR FEEDBACK — mismo proceso para ambos sentidos,
+# inmediato por cada rutina (acumulado histórico, no agrupado):
+#   +1 punto por cada rutina marcada "fácil".
+#   -2 puntos por cada rutina marcada "difícil".
 #   "bien" no mueve nada.
-# Esta asimetría es intencional: converge rápido hacia abajo (para no
-# frustrar), y sube de a poco hacia arriba (para no sobrestimar). Como el
-# conteo de "fácil" es acumulado, en cuanto el nivel deja de sentirse fácil
-# el usuario empieza a responder "bien" y el ajuste se estabiliza solo —
-# es un lazo de búsqueda que converge, no un contador que crece para siempre.
+# La asimetría vive solo en la magnitud (subir de a poco, bajar más rápido),
+# no en el mecanismo — los dos aplican de inmediato, uno por uno.
 # ---------------------------------------------------------------------------
-PUNTOS_POR_CADA_3_FACIL = 2.0
-RUTINAS_FACIL_POR_PASO = 3
+PUNTOS_POR_FACIL = 1.0
 PUNTOS_POR_DIFICIL = 2.0
 
 
@@ -335,9 +330,7 @@ def calcular_ajuste_dificultad(historial: list[dict] | None) -> float:
         return 0.0
     n_facil = sum(1 for h in historial if h.get("feedback_dificultad") == "facil")
     n_dificil = sum(1 for h in historial if h.get("feedback_dificultad") == "dificil")
-    ajuste_arriba = (n_facil // RUTINAS_FACIL_POR_PASO) * PUNTOS_POR_CADA_3_FACIL
-    ajuste_abajo = n_dificil * PUNTOS_POR_DIFICIL
-    return ajuste_arriba - ajuste_abajo
+    return (n_facil * PUNTOS_POR_FACIL) - (n_dificil * PUNTOS_POR_DIFICIL)
 
 
 def obtener_techo_cluster(nivel_cluster_nombre: str | None, historial: list[dict] | None) -> float:
