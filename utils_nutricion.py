@@ -103,6 +103,39 @@ def traducir_ingredientes_a_ingles(ingredientes: list[str]) -> list[str]:
     return [str(i).strip().lower() for i in traducidos]
 
 
+def traducir_ingredientes_a_espanol(ingredientes: list[str]) -> list[str]:
+    """Dirección inversa — Spoonacular regresa 'usedIngredients'/
+    'missedIngredients' en inglés; esto los traduce para mostrarlos en la
+    pantalla de confirmación, más legible para nuestro público. Si algo
+    sale mal, se regresan tal cual (mejor mostrar inglés que tronar)."""
+    if not ingredientes:
+        return []
+    if not OPENAI_API_KEY:
+        return ingredientes
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    prompt = (
+        f"Translate this list of food ingredient names to natural Spanish "
+        f"(Latin American, simple everyday words): {ingredientes}. Respond "
+        "with ONLY a JSON array of strings, same order, same length, no "
+        "extra text, no markdown fences."
+    )
+    try:
+        respuesta = client.chat.completions.create(
+            model=MODELO_VISION,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=300,
+        )
+        texto_limpio = respuesta.choices[0].message.content.strip().replace("```json", "").replace("```", "").strip()
+        traducidos = json.loads(texto_limpio)
+        if isinstance(traducidos, list) and len(traducidos) == len(ingredientes):
+            return [str(i).strip() for i in traducidos]
+    except Exception as e:
+        print(f"[ASCEND][nutricion][WARN] no se pudo traducir a español: {e}")
+
+    return ingredientes
+
+
 # ---------------------------------------------------------------------------
 # PASO 1 — FOTO DEL REFRIGERADOR -> LISTA DE INGREDIENTES (en inglés)
 # ---------------------------------------------------------------------------
@@ -376,3 +409,73 @@ def buscar_comidas_por_objetivo(objetivo_nutricional: dict, n_opciones: int = 3)
             "url_receta": r.get("sourceUrl") or f"https://spoonacular.com/recipes/{r['title'].replace(' ', '-')}-{r['id']}",
         })
     return opciones
+
+
+# ---------------------------------------------------------------------------
+# INSTRUCCIONES DE PREPARACIÓN — DENTRO de la app, no un link externo.
+# Usa las instrucciones REALES de Spoonacular (una sola llamada, barata en
+# cuota) y solo las traduce/formatea con el LLM — no inventa una receta
+# nueva. Si Spoonacular no tiene instrucciones para esa receta en particular
+# (pasa con algunas), el LLM sí propone una preparación razonable, pero se
+# marca claramente para no hacerla pasar por la receta original.
+# ---------------------------------------------------------------------------
+def obtener_instrucciones_preparacion(receta_id: int, titulo: str) -> dict:
+    """Regresa {'texto': str, 'es_generada_por_ia': bool}."""
+    if not SPOONACULAR_API_KEY:
+        raise ErrorNutricion("No hay SPOONACULAR_API_KEY configurada en .env")
+
+    print(f"[ASCEND][nutricion][request] recipe information id={receta_id} (para instrucciones)")
+    try:
+        resp = requests.get(
+            f"{SPOONACULAR_BASE_URL}/recipes/{receta_id}/information",
+            params={"apiKey": SPOONACULAR_API_KEY},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        raise ErrorNutricion(f"No se pudo conectar con Spoonacular: {e}")
+
+    print(f"[ASCEND][nutricion][response] recipe information status={resp.status_code}")
+    if resp.status_code == 402:
+        raise ErrorNutricion("Se acabó la cuota gratuita de Spoonacular por hoy (50 puntos/día). Intenta mañana.")
+    if not resp.ok:
+        raise ErrorNutricion(f"Spoonacular respondió con error {resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json()
+    pasos_analizados = data.get("analyzedInstructions", [])
+    if pasos_analizados and pasos_analizados[0].get("steps"):
+        pasos_ingles = "\n".join(f"{p['number']}. {p['step']}" for p in pasos_analizados[0]["steps"])
+    else:
+        pasos_ingles = (data.get("instructions") or "").strip()
+
+    if not OPENAI_API_KEY:
+        raise ErrorNutricion("No hay OPENAI_API_KEY configurada en .env")
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    if pasos_ingles:
+        prompt = (
+            f"Translate and format these cooking instructions into clear, "
+            f"numbered steps in natural Spanish (Latin American audience). "
+            f"Keep all steps, don't invent or remove any. Recipe: '{titulo}'.\n\n"
+            f"Instructions:\n{pasos_ingles}"
+        )
+        es_generada_por_ia = False
+    else:
+        # Spoonacular no tenía instrucciones para esta receta en particular.
+        prompt = (
+            f"No encontramos instrucciones oficiales para la receta '{titulo}'. "
+            f"Propón una preparación simple y razonable, en pasos numerados, "
+            f"en español, para alguien cocinando en casa."
+        )
+        es_generada_por_ia = True
+
+    try:
+        respuesta = client.chat.completions.create(
+            model=MODELO_VISION,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=700,
+        )
+        texto = respuesta.choices[0].message.content.strip()
+    except Exception as e:
+        raise ErrorNutricion(f"No se pudieron generar las instrucciones: {e}")
+
+    return {"texto": texto, "es_generada_por_ia": es_generada_por_ia}

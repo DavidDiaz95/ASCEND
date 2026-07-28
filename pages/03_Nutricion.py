@@ -1,10 +1,13 @@
 import streamlit as st
 
-from utils_db import obtener_xp_total, registrar_interaccion_nutricion, obtener_historial_nutricion, obtener_perfil
+from utils_db import (
+    obtener_xp_total, registrar_interaccion_nutricion, obtener_historial_nutricion,
+    obtener_perfil, obtener_comidas_de_hoy,
+)
 from utils_nutricion import (
-    identificar_ingredientes_de_foto, traducir_ingredientes_a_ingles,
+    identificar_ingredientes_de_foto, traducir_ingredientes_a_ingles, traducir_ingredientes_a_espanol,
     buscar_opciones_comida, buscar_comidas_por_objetivo, calcular_objetivo_nutricional,
-    XP_POR_COMIDA_CONFIRMADA, ErrorNutricion,
+    obtener_instrucciones_preparacion, XP_POR_COMIDA_CONFIRMADA, ErrorNutricion,
 )
 
 st.set_page_config(page_title="ASCEND — Nutrición", page_icon="🥗")
@@ -33,11 +36,25 @@ def encabezado_seccion(texto: str, color: str = VERDE_PRIMARIO) -> None:
     )
 
 
+def elegir_opcion(opcion: dict) -> None:
+    """Traduce ingredientes usados/faltantes a español ANTES de pasar a la
+    pantalla de confirmación — más legible para nuestro público. Limpia
+    también cualquier instrucción de una comida elegida previamente."""
+    opcion = dict(opcion)
+    if opcion.get("ingredientes_usados") or opcion.get("ingredientes_faltantes"):
+        with st.spinner("Preparando el detalle..."):
+            opcion["ingredientes_usados"] = traducir_ingredientes_a_espanol(opcion.get("ingredientes_usados", []))
+            opcion["ingredientes_faltantes"] = traducir_ingredientes_a_espanol(opcion.get("ingredientes_faltantes", []))
+    st.session_state["comida_seleccionada"] = opcion
+    st.session_state.pop("instrucciones_actual", None)
+    st.rerun()
+
+
 def mostrar_tarjeta_opcion(opcion: dict, key_prefix: str) -> None:
     """Tarjeta reutilizable — la usan tanto 'disponibles' como 'recomendadas
     para tu objetivo', para que se vean y se comporten igual."""
     with st.container(border=True):
-        col_img, col_info, col_boton = st.columns([1, 2, 1])
+        col_img, col_info = st.columns([1, 2])
         with col_img:
             if opcion.get("imagen_url"):
                 st.image(opcion["imagen_url"], use_container_width=True)
@@ -51,10 +68,8 @@ def mostrar_tarjeta_opcion(opcion: dict, key_prefix: str) -> None:
                 st.caption(f"🛒 Te faltaría: {', '.join(opcion['ingredientes_faltantes'])}")
             elif opcion.get("ingredientes_usados"):
                 st.caption("✅ Tienes todo lo que necesitas")
-        with col_boton:
-            if st.button("Elegir", key=f"{key_prefix}_{opcion['id']}", use_container_width=True, type="primary"):
-                st.session_state["comida_seleccionada"] = opcion
-                st.rerun()
+        if st.button("Elegir", key=f"{key_prefix}_{opcion['id']}", use_container_width=True, type="primary"):
+            elegir_opcion(opcion)
 
 
 st.markdown(f"<h1 style='color: {TEXTO_OSCURO};'>🥗 Nutrición</h1>", unsafe_allow_html=True)
@@ -85,10 +100,26 @@ if st.session_state.get("comida_seleccionada"):
         )
         if comida.get("listo_en_minutos"):
             st.caption(f"⏱️ Listo en ~{comida['listo_en_minutos']} min · {comida.get('porciones', '—')} porciones")
+        if comida.get("ingredientes_usados"):
+            st.caption(f"✅ Usa: {', '.join(comida['ingredientes_usados'])}")
         if comida.get("ingredientes_faltantes"):
             st.caption(f"🛒 Te faltaría: {', '.join(comida['ingredientes_faltantes'])}")
-        if comida.get("url_receta"):
-            st.link_button("📖 Ver receta completa", comida["url_receta"], use_container_width=True)
+
+    st.divider()
+
+    # --- Instrucciones DENTRO de la app, ya no un link externo ---
+    if st.button("👨‍🍳 Ver cómo prepararla", use_container_width=True):
+        with st.spinner("Buscando la preparación..."):
+            try:
+                st.session_state["instrucciones_actual"] = obtener_instrucciones_preparacion(comida["id"], comida["titulo"])
+            except ErrorNutricion as e:
+                st.error(str(e))
+
+    instrucciones = st.session_state.get("instrucciones_actual")
+    if instrucciones:
+        if instrucciones["es_generada_por_ia"]:
+            st.caption("⚠️ No encontramos la receta original — esta es una sugerencia general basada en el título.")
+        st.markdown(instrucciones["texto"])
 
     st.divider()
     col1, col2 = st.columns(2)
@@ -110,17 +141,19 @@ if st.session_state.get("comida_seleccionada"):
             )
             st.session_state["comida_registrada_xp"] = XP_POR_COMIDA_CONFIRMADA
             del st.session_state["comida_seleccionada"]
+            st.session_state.pop("instrucciones_actual", None)
             st.rerun()
     with col2:
         if st.button("⬅️ Elegir otra opción", use_container_width=True):
             del st.session_state["comida_seleccionada"]
+            st.session_state.pop("instrucciones_actual", None)
             st.rerun()
 
     st.stop()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1. PANEL DE METAS DIARIAS — arriba de todo, siempre visible.
+# 1. PANEL DE METAS DIARIAS + BARRA DE PROGRESO — arriba de todo.
 # ═══════════════════════════════════════════════════════════════════════════
 encabezado_seccion("🎯 Tu meta diaria")
 
@@ -140,13 +173,30 @@ else:
         f"y actividad moderada asumida. Esto es una guía general, no reemplaza a un nutriólogo."
     )
 
+    comidas_hoy = obtener_comidas_de_hoy(usuario_id)
+    calorias_hoy = sum(c.get("calorias") or 0 for c in comidas_hoy)
+    proteina_hoy = sum(c.get("proteina_g") or 0 for c in comidas_hoy)
+    grasa_hoy = sum(c.get("grasa_g") or 0 for c in comidas_hoy)
+    carbs_hoy = sum(c.get("carbohidratos_g") or 0 for c in comidas_hoy)
+
+    progreso_calorias = min(calorias_hoy / metas["calorias"], 1.0) if metas["calorias"] else 0.0
+    st.progress(
+        progreso_calorias,
+        text=f"Progreso de hoy: {round(calorias_hoy)} / {metas['calorias']} kcal ({len(comidas_hoy)} comida(s))",
+    )
+    st.caption(
+        f"Proteína: {round(proteina_hoy)}/{metas['proteina_g']} g · "
+        f"Grasa: {round(grasa_hoy)}/{metas['grasa_g']} g · "
+        f"Carbohidratos: {round(carbs_hoy)}/{metas['carbohidratos_g']} g — solo indicativo."
+    )
+
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2. CON LO QUE TIENES DISPONIBLE — foto o texto (ambos se traducen antes
-# de buscar, para que "arroz" sí encuentre "rice").
+# 2. CAPTURA DE INGREDIENTES — foto o texto, compartida arriba de las dos
+# columnas de resultados.
 # ═══════════════════════════════════════════════════════════════════════════
-encabezado_seccion("🍳 Con lo que tienes disponible")
+encabezado_seccion("📷 ¿Qué tienes disponible?")
 
 modo = st.radio(
     "¿Cómo quieres darnos tus ingredientes?",
@@ -182,53 +232,57 @@ else:
     if texto_ingredientes:
         ingredientes_para_buscar = [i.strip() for i in texto_ingredientes.split(",") if i.strip()]
 
-if ingredientes_para_buscar:
-    if st.button("🍳 Buscar opciones de comida", type="primary", use_container_width=True):
-        with st.spinner("Traduciendo y buscando recetas con esto..."):
-            try:
-                ingredientes_en_ingles = traducir_ingredientes_a_ingles(ingredientes_para_buscar)
-                print(f"[ASCEND][nutricion] traducción: {ingredientes_para_buscar} -> {ingredientes_en_ingles}")
-                st.session_state["opciones_disponibles"] = buscar_opciones_comida(ingredientes_en_ingles, n_opciones=3)
-            except ErrorNutricion as e:
-                st.error(str(e))
-                st.session_state["opciones_disponibles"] = []
-
-opciones_disponibles = st.session_state.get("opciones_disponibles", [])
-if opciones_disponibles:
-    st.caption(f"{len(opciones_disponibles)} opciones — ordenadas de la que menos te falta a la que más.")
-    for opcion in opciones_disponibles:
-        mostrar_tarjeta_opcion(opcion, key_prefix="disponible")
-elif "opciones_disponibles" in st.session_state:
-    st.info(
-        "No encontré nada ni siquiera cercano con esos ingredientes — prueba escribiendo uno o dos más. "
-        "Mientras tanto, mira las recomendaciones de abajo, ajustadas a tu objetivo."
-    )
-
 st.divider()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3. OTRAS OPCIONES RECOMENDADAS PARA TU OBJETIVO — siempre disponible,
-# no depende de lo que tengas en el refri. Así SIEMPRE hay una recomendación.
+# 3. DOS COLUMNAS: disponibles (izquierda) | recomendadas por objetivo (derecha)
 # ═══════════════════════════════════════════════════════════════════════════
-encabezado_seccion("✨ Otras opciones recomendadas para tu objetivo", color=TEXTO_OSCURO)
+col_izq, col_der = st.columns(2)
 
-if metas is None:
-    st.caption("Completa tu perfil arriba para desbloquear esta sección.")
-else:
-    if st.button("🔄 Buscar recomendaciones para mi objetivo"):
-        with st.spinner("Buscando comidas balanceadas para ti..."):
-            try:
-                st.session_state["opciones_objetivo"] = buscar_comidas_por_objetivo(metas, n_opciones=3)
-            except ErrorNutricion as e:
-                st.error(str(e))
-                st.session_state["opciones_objetivo"] = []
+with col_izq:
+    encabezado_seccion("🍳 Con lo que tienes disponible")
 
-    opciones_objetivo = st.session_state.get("opciones_objetivo", [])
-    if opciones_objetivo:
-        for opcion in opciones_objetivo:
-            mostrar_tarjeta_opcion(opcion, key_prefix="objetivo")
-    elif "opciones_objetivo" in st.session_state:
-        st.info("No encontré recomendaciones esta vez — intenta de nuevo en un momento.")
+    if ingredientes_para_buscar:
+        if st.button("Buscar opciones de comida", type="primary", use_container_width=True, key="btn_buscar_disponibles"):
+            with st.spinner("Traduciendo y buscando recetas con esto..."):
+                try:
+                    ingredientes_en_ingles = traducir_ingredientes_a_ingles(ingredientes_para_buscar)
+                    print(f"[ASCEND][nutricion] traducción: {ingredientes_para_buscar} -> {ingredientes_en_ingles}")
+                    st.session_state["opciones_disponibles"] = buscar_opciones_comida(ingredientes_en_ingles, n_opciones=3)
+                except ErrorNutricion as e:
+                    st.error(str(e))
+                    st.session_state["opciones_disponibles"] = []
+    else:
+        st.caption("Dinos qué tienes arriba para buscar aquí.")
+
+    opciones_disponibles = st.session_state.get("opciones_disponibles", [])
+    if opciones_disponibles:
+        st.caption(f"{len(opciones_disponibles)} opciones — de la que menos te falta a la que más.")
+        for opcion in opciones_disponibles:
+            mostrar_tarjeta_opcion(opcion, key_prefix="disponible")
+    elif "opciones_disponibles" in st.session_state:
+        st.info("No encontré nada ni siquiera cercano — prueba agregando uno o dos ingredientes más.")
+
+with col_der:
+    encabezado_seccion("✨ Recomendadas para tu objetivo", color=TEXTO_OSCURO)
+
+    if metas is None:
+        st.caption("Completa tu perfil arriba para desbloquear esta sección.")
+    else:
+        if st.button("🔄 Buscar recomendaciones", use_container_width=True, key="btn_buscar_objetivo"):
+            with st.spinner("Buscando comidas balanceadas para ti..."):
+                try:
+                    st.session_state["opciones_objetivo"] = buscar_comidas_por_objetivo(metas, n_opciones=3)
+                except ErrorNutricion as e:
+                    st.error(str(e))
+                    st.session_state["opciones_objetivo"] = []
+
+        opciones_objetivo = st.session_state.get("opciones_objetivo", [])
+        if opciones_objetivo:
+            for opcion in opciones_objetivo:
+                mostrar_tarjeta_opcion(opcion, key_prefix="objetivo")
+        elif "opciones_objetivo" in st.session_state:
+            st.info("No encontré recomendaciones esta vez — intenta de nuevo en un momento.")
 
 st.divider()
 

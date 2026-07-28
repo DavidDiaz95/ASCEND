@@ -424,6 +424,23 @@ def obtener_historial_nutricion(usuario_id: str, limite: int = 20) -> list[dict]
         return historial
 
 
+def obtener_comidas_de_hoy(usuario_id: str) -> list[dict]:
+    """Comidas confirmadas HOY (fecha del servidor) — para la barra de
+    progreso de la meta diaria. Es puramente indicativo: compara contra
+    'date(registrado_en)', no contra un rango de 24h exactas."""
+    import json
+
+    with get_connection() as conn:
+        filas = conn.execute(
+            """
+            SELECT detalle_json FROM interacciones_nutricion
+            WHERE usuario_id = ? AND date(registrado_en) = date('now')
+            """,
+            (usuario_id,),
+        ).fetchall()
+        return [json.loads(f["detalle_json"]) for f in filas if f["detalle_json"]]
+
+
 def obtener_xp_total(usuario_id: str) -> int:
     """XP acumulado real: rutinas Y comidas confirmadas — la sinergia entre
     ambos sistemas vive aquí. Antes solo sumaba interacciones_rutinas."""
