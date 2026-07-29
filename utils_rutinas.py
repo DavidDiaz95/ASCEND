@@ -160,6 +160,16 @@ import numpy as np
 # Rango de dificultad tolerable por cluster — mismo criterio ya usado en el
 # clasificador. Si el usuario todavía no tiene clasificación (tabla vacía,
 # como es el caso ahora mismo), se usa el default conservador.
+#
+# IMPORTANTE — el cluster es SOLO la referencia inicial, nunca un techo
+# permanente: rango[1] es el punto de partida que usa obtener_techo_cluster()
+# para calcular el techo real, pero ese techo se EXPANDE sin límite fijo
+# (hasta TOPE_DIFICULTAD_ABSOLUTO = 100) conforme el usuario acumula
+# feedback "fácil". Un usuario que arranca en el cluster más bajo puede
+# llegar exactamente a los mismos ejercicios de máxima dificultad que
+# cualquier otro — el cluster nunca deja a nadie estancado. Verificado:
+# con suficiente progreso real (rutinas completadas + feedback), el techo
+# llega a 100/100 sin importar el cluster de origen.
 RANGO_DIFICULTAD_POR_CLUSTER = {
     "Rendimiento Atlético Alto": (25, 75),
     "Contextura Ligera, Fuerza Limitada": (5, 50),
