@@ -23,11 +23,21 @@ OPCIONES_RANGO = ["Última semana", "Último mes", "Último año", "Histórico c
 DIAS_POR_RANGO = {"Última semana": 7, "Último mes": 30, "Último año": 365, "Histórico completo": None}
 
 
+def ahora_utc() -> pd.Timestamp:
+    """'Ahora' en UTC, sin zona horaria adjunta — para comparar directo
+    contra los timestamps que guarda SQLite (datetime('now') es SIEMPRE
+    UTC, sin importar la zona horaria de la máquina). Usar pd.Timestamp.now()
+    (hora LOCAL) aquí causaba que la racha y los filtros de rango fallaran
+    durante varias horas cada día, dependiendo de la zona horaria del
+    usuario — bug real encontrado y corregido."""
+    return pd.Timestamp.now(tz="UTC").tz_localize(None)
+
+
 def filtrar_por_rango(historial: list[dict], campo_fecha: str, rango: str) -> list[dict]:
     dias = DIAS_POR_RANGO.get(rango)
     if dias is None:
         return historial
-    limite = pd.Timestamp.now() - pd.Timedelta(days=dias)
+    limite = ahora_utc() - pd.Timedelta(days=dias)
     return [h for h in historial if pd.to_datetime(h[campo_fecha]) >= limite]
 
 
@@ -210,7 +220,7 @@ def calcular_racha_actual(historial_rutinas_completo: list[dict], historial_nutr
     if not fechas:
         return 0
 
-    hoy = pd.Timestamp.now().date()
+    hoy = ahora_utc().date()
     cursor = hoy if hoy in fechas else hoy - pd.Timedelta(days=1)
     if cursor not in fechas:
         return 0
