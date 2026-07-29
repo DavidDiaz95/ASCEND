@@ -102,7 +102,7 @@ with st.expander("[HIDDEN] Perfilador del Usuario"):
         st.warning("Este usuario todavía no tiene una clasificación guardada.")
 
     st.divider()
-    historial_debug = obtener_historial_rutinas(usuario_id)
+    historial_debug = obtener_historial_rutinas(usuario_id, limite=1000)
     n_facil = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "facil")
     n_bien = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "bien")
     n_dificil = sum(1 for h in historial_debug if h.get("feedback_dificultad") == "dificil")

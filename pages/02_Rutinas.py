@@ -311,7 +311,7 @@ clave_menu_actual = (tuple(sorted(equipo_activo)), objetivo_seleccionado)
 if st.session_state.get("menu_rutinas_clave") != clave_menu_actual:
     clasificacion = obtener_clasificacion(usuario_id)
     nivel_cluster_nombre = clasificacion["nivel_cluster_nombre"] if clasificacion else None
-    historial = obtener_historial_rutinas(usuario_id)
+    historial = obtener_historial_rutinas(usuario_id, limite=1000)
     frecuencia_zonas = obtener_frecuencia_zonas_reciente(usuario_id)
 
     print(f"tu cluster es {nivel_cluster_nombre}")
@@ -333,7 +333,7 @@ if st.session_state.get("menu_rutinas_clave") != clave_menu_actual:
 if st.session_state.get("menu_grupos_clave") != tuple(sorted(equipo_activo)):
     clasificacion = obtener_clasificacion(usuario_id)
     nivel_cluster_nombre = clasificacion["nivel_cluster_nombre"] if clasificacion else None
-    historial = obtener_historial_rutinas(usuario_id)
+    historial = obtener_historial_rutinas(usuario_id, limite=1000)
     st.session_state["menu_grupos"] = generar_menu_por_grupos(equipo_activo, nivel_cluster_nombre, historial=historial)
     st.session_state["menu_grupos_clave"] = tuple(sorted(equipo_activo))
 
