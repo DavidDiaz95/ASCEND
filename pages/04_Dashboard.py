@@ -252,10 +252,11 @@ encabezado_seccion(f"⏱️ Minutos entrenados por {etiqueta_periodo.lower()}", 
 minutos_periodo = calcular_minutos_entrenados(historial_rutinas, granularidad)
 if not minutos_periodo.empty:
     fig_minutos = go.Figure()
-    fig_minutos.add_trace(go.Bar(
-        x=minutos_periodo["periodo"], y=minutos_periodo["minutos"],
-        marker=dict(color=VERDE_PRIMARIO, line=dict(color=VERDE_MEDIO, width=1)),
-        text=minutos_periodo["minutos"].round().astype(int), textposition="outside",
+    fig_minutos.add_trace(go.Scatter(
+        x=minutos_periodo["periodo"], y=minutos_periodo["minutos"], mode="lines+markers",
+        line=dict(color=VERDE_PRIMARIO, width=2.5, shape="spline"),
+        marker=dict(size=8, color=VERDE_PRIMARIO, line=dict(color="white", width=1)),
+        fill="tozeroy", fillcolor="rgba(0, 106, 32, 0.15)",
     ))
     fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo, type="category")
     fig_minutos.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Minutos entrenados")
