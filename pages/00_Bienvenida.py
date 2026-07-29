@@ -12,15 +12,14 @@ with col_centro:
     st.image(str(RUTA_LOGOS / "ascend-logo-stacked.png"), use_container_width=True)
 
 st.markdown(
-    "<h3 style='text-align: center; color: #141d16;'>Cada recomendación basada en tu realidad.</h3>",
+    "<h3 style='text-align: center; color: #141d16;'>Conoce tu punto de partida. Construye tu ascenso.</h3>",
     unsafe_allow_html=True,
 )
 st.markdown(
     """
     <p style='text-align: center; color: #3a3a3a; font-size: 16px;'>
-    ASCEND utiliza inteligencia y datos para ayudarte a entrenar y alimentarte
-    mejor. Cada recomendación se adapta a tu nivel, hábitos, objetivos y
-    recursos disponibles, para que avances de forma sostenible y medible.
+    Evaluamos tu condición física real con pruebas concretas, no con suposiciones. A partir de ahí, tus rutinas y
+     tu alimentación se ajustan contigo — cada vez que avanzas, cada vez que cambian tus metas.
     </p>
     """,
     unsafe_allow_html=True,

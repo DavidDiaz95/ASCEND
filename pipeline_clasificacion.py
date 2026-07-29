@@ -18,10 +18,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN
 # ---------------------------------------------------------------------------
-# BASE_DIR: carpeta donde vive ESTE archivo, sin importar desde dónde lo
-# ejecutes. Esto evita el problema clásico de que "../Models/..." se resuelva
-# distinto según tu directorio de trabajo actual (cwd) en vez de según dónde
-# está guardado el script.
+# BASE_DIR: carpeta donde vive ESTE archivo, sin importar desde dónde se ejecute.
+
 BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATHS = {
@@ -49,7 +47,7 @@ CAMPOS_REQUERIDOS = [
 ]
 
 # Cache simple en memoria — evita releer el .joblib del disco en cada llamada.
-# En Streamlit esto se reemplaza por @st.cache_resource sobre esta misma función.
+
 _modelos_cache = {}
 
 

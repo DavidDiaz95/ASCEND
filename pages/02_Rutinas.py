@@ -184,13 +184,13 @@ if st.session_state.get("ejecucion"):
         st.write("¿Cómo se sintió la dificultad? Esto ajusta tus próximas recomendaciones.")
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("😌 Fácil", use_container_width=True):
+            if st.button("😎 Fácil", use_container_width=True):
                 finalizar_rutina("facil")
         with col2:
-            if st.button("🙂 Bien", use_container_width=True, type="primary"):
+            if st.button("😲 Bien", use_container_width=True, type="primary"):
                 finalizar_rutina("bien")
         with col3:
-            if st.button("😖 Difícil", use_container_width=True):
+            if st.button("💀 Difícil", use_container_width=True):
                 finalizar_rutina("dificil")
         st.stop()
 

@@ -183,8 +183,7 @@ else:
     col3.metric("Grasa", f"{metas['grasa_g']} g")
     col4.metric("Carbohidratos", f"{metas['carbohidratos_g']} g")
     st.caption(
-        f"Estimado para tu objetivo actual (**{metas['objetivo_usado']}**) con Mifflin-St Jeor "
-        f"y actividad moderada asumida. Esto es una guía general, no reemplaza a un nutriólogo."
+        f"Estimado para tu objetivo actual (**{metas['objetivo_usado']}**) con Mifflin-St Jeor y factor de actividad moderado."
     )
 
     comidas_hoy = obtener_comidas_de_hoy(usuario_id)
@@ -206,7 +205,7 @@ else:
     with col_prog2:
         st.progress(progreso_proteina, text=f"🍗 Proteína: {round(proteina_hoy)}/{metas['proteina_g']} g")
         st.progress(progreso_carbs, text=f"🍞 Carbohidratos: {round(carbs_hoy)}/{metas['carbohidratos_g']} g")
-    st.caption("Solo indicativo — no es una meta estricta, es para que veas cómo vas.")
+    st.caption("Solo indicativo — no es una meta estricta.")
 
 st.divider()
 

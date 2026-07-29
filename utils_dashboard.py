@@ -189,7 +189,6 @@ def calcular_evolucion_dificultad(historial_rutinas: list[dict], granularidad: s
 
 # ---------------------------------------------------------------------------
 # 7. MINUTOS ENTRENADOS POR DÍA/MES — dato que ya se guarda (duracion_segundos)
-# desde hace varias iteraciones, pero nunca se había mostrado en ningún lado.
 # ---------------------------------------------------------------------------
 def calcular_minutos_entrenados(historial_rutinas: list[dict], granularidad: str = "dia") -> pd.DataFrame:
     largo = 10 if granularidad == "dia" else 7

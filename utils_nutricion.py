@@ -35,7 +35,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SPOONACULAR_API_KEY = os.getenv("SPOONACULAR_API_KEY")
 SPOONACULAR_BASE_URL = "https://api.spoonacular.com"
 
-MODELO_VISION = "gpt-5.4-mini"  # mismo modelo que 05_Asistente.py, sí soporta imágenes
+MODELO_VISION = "gpt-5.4-mini"  # mismo modelo que 05_Asistente.py
 
 # ---------------------------------------------------------------------------
 # XP — a propósito más generoso que una rutina promedio, para incentivar que
@@ -301,8 +301,7 @@ def buscar_opciones_comida(ingredientes: list[str], n_opciones: int = 3) -> list
 
 # ---------------------------------------------------------------------------
 # PANEL DE METAS DIARIAS — Mifflin-St Jeor (BMR) + factor de actividad +
-# ajuste según objetivo. Es una ESTIMACIÓN general, no un plan clínico —
-# se lo advertimos al usuario en la UI, no reemplaza a un nutriólogo.
+# ajuste según objetivo. Es una ESTIMACIÓN general, no un plan clínico
 # ---------------------------------------------------------------------------
 FACTOR_ACTIVIDAD_ASUMIDO = 1.45  # "moderadamente activo" — asunción documentada,
 # ya que hoy no medimos frecuencia real de entrenamiento por semana
@@ -317,7 +316,7 @@ PROTEINA_G_POR_KG_POR_OBJETIVO = {
     "Bajar de peso": 1.8, "Ganar músculo": 2.0, "Ganar fuerza": 1.8,
     "Mejorar resistencia/cardio": 1.4, "Salud general": 1.4,
 }
-PISO_CALORICO_SEGURIDAD = 1200  # nunca recomendar menos que esto, sin importar el déficit
+PISO_CALORICO_SEGURIDAD = 1200  # nunca recomendar menos que esto, no es saludable
 
 
 def calcular_objetivo_nutricional(perfil: dict) -> dict:
@@ -412,9 +411,8 @@ def buscar_comidas_por_objetivo(objetivo_nutricional: dict, n_opciones: int = 3)
 
 
 # ---------------------------------------------------------------------------
-# INGREDIENTES NECESARIOS — las opciones de "recomendadas para tu objetivo"
-# no vienen del refrigerador, así que no traen usedIngredients/
-# missedIngredients (eso es exclusivo de findByIngredients). Esta función
+# INGREDIENTES NECESARIOS 
+# missedIngredients. Esta función
 # trae la lista completa de ingredientes de la receta (una sola llamada) para
 # mostrarla al elegir, aunque no venga del buscador por disponibilidad.
 # ---------------------------------------------------------------------------

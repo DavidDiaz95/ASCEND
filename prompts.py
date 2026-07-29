@@ -1,9 +1,8 @@
 """
 prompts.py — System prompt del asistente conversacional de ASCEND
 --------------------------------------------------------------------------------
-Arma el system prompt en secciones modulares — mismo patrón de prompt
-engineering de tu ejemplo (role framing, whitelist/blacklist + anti-prompt-
-injection, goal priming, guía de estilo, plantilla de respuesta, ruta de
+Arma el system prompt en secciones modulares (role framing, whitelist/blacklist 
++ anti-prompt-injection, goal priming, guía de estilo, plantilla de respuesta, ruta de
 onboarding, ejemplos de desvío, buenas prácticas de explicación, CTA de
 cierre, disclaimer, meta final) — adaptado al dominio de ASCEND: fitness y
 nutrición para LATAM, no análisis financiero.

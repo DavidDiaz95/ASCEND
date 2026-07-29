@@ -127,24 +127,30 @@ def _migrar_columnas_faltantes(conn: sqlite3.Connection) -> None:
         # trae XP, no dificultad, y no se puede calcular hacia dónde va
         # progresando el usuario en términos de exigencia real.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN dificultad_promedio_rutina REAL")
+
     if "n_ejercicios" not in columnas_interacciones:
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN n_ejercicios INTEGER")
+    
     if "zonas_json" not in columnas_interacciones:
         # dict zona_muscular -> cuántos ejercicios de esa zona trajo la
         # rutina. Es la pieza que le falta al dashboard y al balanceador
         # de zonas musculares del recomendador.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN zonas_json TEXT")
+    
     if "objetivo" not in columnas_interacciones:
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN objetivo TEXT")
+    
     if "feedback_dificultad" not in columnas_interacciones:
         # 'facil' | 'bien' | 'dificil' — lo que el usuario reporta al
         # terminar. Alimenta calcular_ajuste_por_feedback() en
         # utils_rutinas.py para la SIGUIENTE recomendación.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN feedback_dificultad TEXT")
+    
     if "duracion_segundos" not in columnas_interacciones:
         # Tiempo real entre "Empezar" y "Terminar rutina" — para el
         # dashboard de progreso.
         conn.execute("ALTER TABLE interacciones_rutinas ADD COLUMN duracion_segundos INTEGER")
+    
     if "ejercicios_ids_json" not in columnas_interacciones:
         # IDs exactos de los ejercicios PRINCIPALES de la rutina (no
         # calentamiento). Sin esto no hay forma de garantizar rotación real
@@ -167,10 +173,7 @@ def _migrar_rutina_personalizada_a_multi_slot(conn: sqlite3.Connection) -> None:
     """
     La tabla rutina_personalizada empezó con usuario_id como llave primaria
     (una sola rutina por usuario). Ahora se permiten hasta 3 (un `slot`
-    1/2/3 por usuario). SQLite no permite cambiar la llave primaria de una
-    tabla existente con ALTER TABLE, así que si detectamos el esquema
-    viejo, migramos: creamos la tabla nueva, copiamos lo que hubiera como
-    slot 1, y reemplazamos la vieja.
+    1/2/3 por usuario). 
     """
     tabla_existe = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='rutina_personalizada'"

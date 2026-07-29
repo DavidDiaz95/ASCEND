@@ -23,7 +23,7 @@ if not st.session_state.get("usuario_id"):
 usuario_id = st.session_state["usuario_id"]
 
 # ---------------------------------------------------------------------------
-# PALETA REAL DE ASCEND (OKLCH oficial, convertida a hex) + tonos derivados
+# PALETA REAL DE ASCEND (colores oficiales)
 # del MISMO matiz (150°) para series secundarias.
 # ---------------------------------------------------------------------------
 VERDE_PRIMARIO = "#006a20"   # oklch(0.45 0.15 150) — oficial
@@ -92,7 +92,7 @@ st.markdown(f"<h1 style='color: {CASI_NEGRO};'>📈 Mi Progreso</h1>", unsafe_al
 
 # [HIDDEN] Perfilador del Usuario — funcional, no decorativo. Se deja
 # colapsado y sin explicación a propósito.
-with st.expander("[HIDDEN] Perfilador del Usuario"):
+with st.expander("[HIDDEN] Perfilador del Usuario (Visible solo para desarrollo y evaluación)"):
     clasificacion = obtener_clasificacion(usuario_id)
     if clasificacion:
         st.write(f"**Cluster:** {clasificacion['nivel_cluster_nombre']} (id interno: {clasificacion['nivel_cluster']})")
@@ -306,11 +306,4 @@ with st.expander("📋 Ver historial detallado de rutinas y nutrición"):
     else:
         st.caption("Todavía no registras ninguna comida en este rango.")
 
-# ═══════════════════════════════════════════════════════════════════════════
-# RESERVADO — EN DESARROLLO
-# ═══════════════════════════════════════════════════════════════════════════
-# Pendiente (ver roadmap):
-#   1. Sistema de niveles visible (barra de progreso al siguiente nivel).
-#   2. Preferencias/restricciones nutricionales del usuario — la "tabla de
-#      clientes" de dietas.
-# ═══════════════════════════════════════════════════════════════════════════
+

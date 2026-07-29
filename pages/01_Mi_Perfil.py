@@ -358,11 +358,7 @@ with st.form("formulario_perfil"):
         # -----------------------------------------------------------------
         # CONEXIÓN CON EL CLASIFICADOR RESTRINGIDO (nivel_cluster oculto)
         # -----------------------------------------------------------------
-        # TODO(David): renombra "5.5. pipeline_piloto_clasificacion.py" a
-        # "pipeline_clasificacion.py" en la raíz del repo — con puntos y
-        # espacios en el nombre, Python no puede importarlo como módulo.
-        # Y copia clasificador_restringido_F.joblib / _M.joblib a Models/
-        # junto a ese archivo (ya los tienes generados, según tu captura).
+
         try:
             from pipeline_clasificacion import clasificar_usuario
 
@@ -381,11 +377,9 @@ with st.form("formulario_perfil"):
             )
             # Nota: a propósito NO mostramos nivel_cluster_nombre aquí — es
             # dato interno. El usuario solo debe ver progreso vía XP.
+            
             st.toast("Tu plan ya está personalizado con tus resultados 💪")
         except (ImportError, FileNotFoundError) as e:
-            # RESERVADO: mientras no exista pipeline_clasificacion.py o los
-            # .joblib no estén copiados al repo, el perfil se guarda igual
-            # y la clasificación se hace en cuanto conectes esa pieza.
             print(f"[ASCEND][clasificacion][ERROR] usuario={st.session_state['username']} tipo={type(e).__name__} detalle={e}")
             st.info(
                 "Tu perfil quedó guardado. La personalización automática por "

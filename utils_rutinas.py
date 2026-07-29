@@ -30,8 +30,6 @@ BASE_DIR = Path(__file__).resolve().parent
 RUTA_CATALOGO = BASE_DIR / "Assets" / "exercises_catalog_spanish_version.parquet"
 RUTA_GIFS = BASE_DIR / "Assets" / "ejercicios_media" / "videos"
 
-# Mismo orden en que David los reportó — se usa tal cual en el multiselect
-# de equipo para que el usuario no tenga que adivinar nombres.
 EQUIPO_OPCIONES = [
     "peso corporal", "mancuerna", "barra", "barra ez", "barra olímpica",
     "barra hexagonal", "polea", "máquina de palanca", "máquina smith",
@@ -570,15 +568,15 @@ POSICIONES_MENU = [
     # expansión por feedback). Al ser PROPORCIONAL a la distancia
     # disponible en cada extremo, ningún escalón puede "colapsarse" contra
     # otro cuando el techo sube — siempre se re-estira para cubrirlo.
-    ("🟢 Muy fácil", -1.0, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🟢 Fácil", -0.6, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🟡 Suave", -0.3, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🟡 Recomendada", 0.0, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🟠 Un poco más", 0.35, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🔴 Reto", 0.7, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🔴 Reto alto", 1.0, PESO_BALANCE_ZONAS_DEFAULT),
-    ("⚖️ Equilibrio muscular", 0.0, 0.85),
-    ("🎯 Enfocada en tu objetivo", 0.0, 0.05),
+    ("🟢 Día de campo (muy fácil)", -1.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟢 Dia suave y controlado (fácil)", -0.6, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟡 Dia de rutina (moderada)", -0.3, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟡 Recomendada para ti (moderada)", 0.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟠 Desafio Moderado (dificil)", 0.35, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Desafio Alto (brutal)", 0.7, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Desafio Brutal (brutal)", 1.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("⚖️ Perfectamente Equilibrado (moderada)", 0.0, 0.85),
+    ("🎯 Objetivo Puro (moderada)", 0.0, 0.05),
 ]
 
 
@@ -642,11 +640,11 @@ def generar_menu_rutinas(
 # contenido bajado de internet.
 # ---------------------------------------------------------------------------
 DIAS_POR_GRUPO_MUSCULAR = {
-    "Empuje superior": "💪 Día de empuje",
-    "Tracción superior": "🎣 Día de tracción",
-    "Tren inferior": "🦵 Día de pierna",
-    "Core": "🔥 Día de core",
-    "Cardio": "🏃 Día de cardio",
+    "Empuje superior": "💪 Empuje de Poder",
+    "Tracción superior": "🎣 Tracción de Dragón",
+    "Tren inferior": "🦵 Piernas de Fuego",
+    "Core": "🔥 Core de Acero",
+    "Cardio": "🏃 Cardio de Campeón",
 }
 
 

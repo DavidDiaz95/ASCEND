@@ -1,7 +1,7 @@
 """
 main.py — Router de ASCEND
 --------------------------------------------------------------------------------
-Este archivo YA NO contiene el chat del asistente (eso se movió a
+Este archivo no contiene el chat del asistente (eso se movió a
 pages/05_Asistente.py). Su único trabajo es:
   1. Inicializar la base de datos si no existe.
   2. Decidir qué páginas se ven en el sidebar según si hay sesión iniciada.
