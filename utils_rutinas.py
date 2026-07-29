@@ -527,17 +527,6 @@ def generar_rutina(
 # sigue aplicando sobre TODAS — si el usuario es nuevo, incluso "Reto alto"
 # queda recortado a 70/100 automáticamente.
 # ---------------------------------------------------------------------------
-VARIANTES_MENU = [
-    {"etiqueta": "🟢 Muy fácil", "desplazamiento": -30, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🟢 Fácil", "desplazamiento": -18, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🟡 Suave", "desplazamiento": -8, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🟡 Recomendada", "desplazamiento": 0, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🟠 Un poco más", "desplazamiento": 10, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🔴 Reto", "desplazamiento": 18, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "🔴 Reto alto", "desplazamiento": 30, "peso_balance": PESO_BALANCE_ZONAS_DEFAULT},
-    {"etiqueta": "⚖️ Equilibrio muscular", "desplazamiento": 0, "peso_balance": 0.85},
-    {"etiqueta": "🎯 Enfocada en tu objetivo", "desplazamiento": 0, "peso_balance": 0.05},
-]
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +552,26 @@ def obtener_ids_recientes(historial: list[dict] | None, n_rutinas: int = N_RUTIN
     return ids
 
 
+POSICIONES_MENU = [
+    # (etiqueta, posicion, peso_balance)
+    # posicion en [-1, 1]: -1 = toca el piso del cluster exactamente,
+    # 0 = el nivel dinámico actual (estimar_nivel_dinamico), +1 = toca el
+    # techo actual exactamente (tope_dificultad, que ya incluye la
+    # expansión por feedback). Al ser PROPORCIONAL a la distancia
+    # disponible en cada extremo, ningún escalón puede "colapsarse" contra
+    # otro cuando el techo sube — siempre se re-estira para cubrirlo.
+    ("🟢 Muy fácil", -1.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟢 Fácil", -0.6, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟡 Suave", -0.3, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟡 Recomendada", 0.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟠 Un poco más", 0.35, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Reto", 0.7, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Reto alto", 1.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("⚖️ Equilibrio muscular", 0.0, 0.85),
+    ("🎯 Enfocada en tu objetivo", 0.0, 0.05),
+]
+
+
 def generar_menu_rutinas(
     equipo_disponible: list[str],
     objetivo: str,
@@ -580,18 +589,33 @@ def generar_menu_rutinas(
     ejercicios de tus últimas rutinas completadas (ver
     N_RUTINAS_EXCLUSION_ROTACION) para garantizar variedad real entre
     rutinas, no solo dentro de la misma rutina.
+
+    La escalera de dificultad se calcula PROPORCIONAL al piso/techo
+    disponibles en este momento (ver POSICIONES_MENU) — así "Reto alto"
+    siempre toca el techo real y "Muy fácil" siempre toca el piso real,
+    sin importar cuánto haya crecido el techo por feedback acumulado.
     """
     excluir_ids = obtener_ids_recientes(historial)
 
+    rango = RANGO_DIFICULTAD_POR_CLUSTER.get(nivel_cluster_nombre, RANGO_DEFAULT_SIN_CLASIFICACION)
+    nivel_base = estimar_nivel_dinamico(nivel_cluster_nombre, historial)
+    techo = calcular_tope_dificultad(nivel_cluster_nombre, historial)
+    piso = rango[0]
+
     variantes = []
-    for cfg in VARIANTES_MENU:
+    for etiqueta, posicion, peso_balance in POSICIONES_MENU:
+        if posicion <= 0:
+            desplazamiento = posicion * (nivel_base - piso)
+        else:
+            desplazamiento = posicion * (techo - nivel_base)
+
         variante = _generar_variante(
             equipo_disponible, objetivo, nivel_cluster_nombre, historial,
             n_ejercicios=n_ejercicios,
-            desplazamiento_dificultad=cfg["desplazamiento"],
-            peso_balance=cfg["peso_balance"],
+            desplazamiento_dificultad=desplazamiento,
+            peso_balance=peso_balance,
             frecuencia_zonas=frecuencia_zonas,
-            etiqueta=cfg["etiqueta"],
+            etiqueta=etiqueta,
             excluir_ids=excluir_ids,
         )
         if variante["ejercicios"]:
