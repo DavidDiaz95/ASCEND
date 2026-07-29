@@ -572,9 +572,9 @@ POSICIONES_MENU = [
     ("🟢 Dia suave y controlado (fácil)", -0.6, PESO_BALANCE_ZONAS_DEFAULT),
     ("🟡 Dia de rutina (moderada)", -0.3, PESO_BALANCE_ZONAS_DEFAULT),
     ("🟡 Recomendada para ti (moderada)", 0.0, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🟠 Desafio Moderado (dificil)", 0.35, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🔴 Desafio Alto (brutal)", 0.7, PESO_BALANCE_ZONAS_DEFAULT),
-    ("🔴 Desafio Brutal (brutal)", 1.0, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🟠 Un poco más (dificil)", 0.35, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Desafiando tus limites (brutal)", 0.7, PESO_BALANCE_ZONAS_DEFAULT),
+    ("🔴 Rompiendo tus limites (brutal)", 1.0, PESO_BALANCE_ZONAS_DEFAULT),
     ("⚖️ Perfectamente Equilibrado (moderada)", 0.0, 0.85),
     ("🎯 Objetivo Puro (moderada)", 0.0, 0.05),
 ]
@@ -642,8 +642,8 @@ def generar_menu_rutinas(
 DIAS_POR_GRUPO_MUSCULAR = {
     "Empuje superior": "💪 Empuje de Poder",
     "Tracción superior": "🎣 Tracción de Dragón",
-    "Tren inferior": "🦵 Piernas de Fuego",
-    "Core": "🔥 Core de Acero",
+    "Tren inferior": "🦵 Piernas de Acero",
+    "Core": "🔥 Core de Fuego",
     "Cardio": "🏃 Cardio de Campeón",
 }
 
@@ -684,7 +684,7 @@ def generar_menu_por_grupos(
 
 def generar_calentamiento(
     equipo_disponible: list[str], zonas_objetivo: list[str], n_ejercicios: int = 5,
-    tope_dificultad_calentamiento: float = 35.0,
+    tope_dificultad_calentamiento: float = 30.0,
 ) -> list[dict]:
     """
     Ejercicios GENUINAMENTE ligeros (score_llm bajo) de las mismas zonas
