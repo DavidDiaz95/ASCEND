@@ -1,8 +1,9 @@
 """
 prompts.py — System prompt del asistente conversacional de ASCEND
 --------------------------------------------------------------------------------
-Arma el system prompt en secciones modulares (role framing, whitelist/blacklist +
-anti-prompt- injection, goal priming, guía de estilo, plantilla de respuesta, ruta de
+Arma el system prompt en secciones modulares — mismo patrón de prompt
+engineering de tu ejemplo (role framing, whitelist/blacklist + anti-prompt-
+injection, goal priming, guía de estilo, plantilla de respuesta, ruta de
 onboarding, ejemplos de desvío, buenas prácticas de explicación, CTA de
 cierre, disclaimer, meta final) — adaptado al dominio de ASCEND: fitness y
 nutrición para LATAM, no análisis financiero.
@@ -166,14 +167,22 @@ def construir_system_prompt(
     nombre_usuario: str | None = None,
     objetivo: str | None = None,
     xp_total: int | None = None,
+    equipo_disponible: list[str] | None = None,
+    racha_actual: int | None = None,
+    n_rutinas_completadas: int | None = None,
+    ejercicio_favorito: str | None = None,
+    meta_nutricional: dict | None = None,
 ) -> str:
     """
-    Arma el system prompt completo. Si se pasan datos reales del usuario
-    (nombre, objetivo, XP), se agrega un bloque de CONTEXTO al final — esto
-    es lo que estaba reservado en 05_Asistente.py: antes el asistente no
-    sabía nada del usuario real y daba respuestas genéricas; ahora puede
-    hablar de SU objetivo y SU progreso sin que el usuario tenga que
-    repetirlo en cada mensaje.
+    Arma el system prompt completo. Si se pasan datos reales del usuario,
+    se agrega un bloque de CONTEXTO al final — esto es lo que estaba
+    reservado en 05_Asistente.py: antes el asistente no sabía nada del
+    usuario real y daba respuestas genéricas; ahora puede hablar de SU
+    objetivo, SU equipo, SU racha y SU progreso sin que el usuario tenga
+    que repetirlo en cada mensaje.
+
+    A propósito NUNCA se pasa aquí nivel_cluster/clasificación — la sección
+    de seguridad ya cubre qué hacer si preguntan por eso.
 
     Nota: el contexto se agrega al FINAL a propósito — así las reglas de
     seguridad (sección de arriba) siempre pesan más que cualquier dato
@@ -185,7 +194,13 @@ def construir_system_prompt(
         EXPLANATION_BEST_PRACTICES, CLOSING_CTA, DISCLAIMER_SECTION, END_STATE,
     ]
 
-    if nombre_usuario or objetivo or xp_total is not None:
+    hay_contexto = any([
+        nombre_usuario, objetivo, xp_total is not None, equipo_disponible,
+        racha_actual is not None, n_rutinas_completadas is not None,
+        ejercicio_favorito, meta_nutricional,
+    ])
+
+    if hay_contexto:
         contexto = ["👤 **Contexto real de este usuario** (úsalo con naturalidad, no lo repitas textual)"]
         if nombre_usuario:
             contexto.append(f"- Nombre: {nombre_usuario}")
@@ -193,6 +208,21 @@ def construir_system_prompt(
             contexto.append(f"- Objetivo actual: {objetivo}")
         if xp_total is not None:
             contexto.append(f"- XP acumulado: {xp_total}")
+        if racha_actual is not None:
+            contexto.append(f"- Racha actual: {racha_actual} día(s) consecutivos con actividad")
+        if n_rutinas_completadas is not None:
+            contexto.append(f"- Rutinas completadas en total: {n_rutinas_completadas}")
+        if equipo_disponible:
+            contexto.append(f"- Equipo disponible: {', '.join(equipo_disponible)}")
+        if ejercicio_favorito:
+            contexto.append(f"- Ejercicio favorito: {ejercicio_favorito}")
+        if meta_nutricional:
+            contexto.append(
+                f"- Meta diaria: {meta_nutricional.get('calorias')} kcal, "
+                f"{meta_nutricional.get('proteina_g')}g proteína, "
+                f"{meta_nutricional.get('grasa_g')}g grasa, "
+                f"{meta_nutricional.get('carbohidratos_g')}g carbohidratos"
+            )
         secciones.append("\n".join(contexto))
 
     return "\n".join(secciones)

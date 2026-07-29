@@ -6,7 +6,9 @@ import streamlit as st
 from openai import OpenAI
 
 from prompts import construir_system_prompt
-from utils_db import obtener_perfil, obtener_xp_total
+from utils_db import obtener_perfil, obtener_xp_total, obtener_equipo_usuario, obtener_historial_rutinas
+from utils_nutricion import calcular_objetivo_nutricional
+from utils_dashboard import calcular_racha_actual, obtener_ejercicio_favorito
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUTA_LOGOS = BASE_DIR / "Logos"
@@ -28,16 +30,27 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client_openai = OpenAI(api_key=OPENAI_API_KEY)
 model_openai = "gpt-5.4-mini"
 
-# El system prompt ya no es un string fijo — se arma con el objetivo y el
-# XP real del usuario (ver prompts.py). nivel_cluster NUNCA se pasa aquí:
-# la sección de seguridad de construir_system_prompt() ya cubre qué hacer
-# si preguntan por su clasificación.
+# El system prompt ya no es un string fijo — se arma con TODO el contexto
+# real disponible del usuario (ver prompts.py). nivel_cluster NUNCA se pasa
+# aquí: la sección de seguridad de construir_system_prompt() ya cubre qué
+# hacer si preguntan por su clasificación.
 usuario_id = st.session_state["usuario_id"]
 perfil_usuario = obtener_perfil(usuario_id) or {}
+historial_rutinas_usuario = obtener_historial_rutinas(usuario_id, limite=1000)
+historial_nutricion_usuario = []  # se completa si en el futuro se necesita aquí también
+
+favorito = obtener_ejercicio_favorito(historial_rutinas_usuario)
+meta_nutricional = calcular_objetivo_nutricional(perfil_usuario) if perfil_usuario else None
+
 SYSTEM_PROMPT = construir_system_prompt(
     nombre_usuario=st.session_state.get("username"),
     objetivo=perfil_usuario.get("objetivo"),
     xp_total=obtener_xp_total(usuario_id),
+    equipo_disponible=obtener_equipo_usuario(usuario_id),
+    racha_actual=calcular_racha_actual(historial_rutinas_usuario, historial_nutricion_usuario),
+    n_rutinas_completadas=len(historial_rutinas_usuario),
+    ejercicio_favorito=favorito["nombre"] if favorito else None,
+    meta_nutricional=meta_nutricional,
 )
 
 col_izq, col_centro, col_der = st.columns([1, 2, 1])
