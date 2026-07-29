@@ -167,10 +167,10 @@ with col_xp_area:
             line=dict(color=VERDE_MEDIO, width=2.5, shape="spline"), fill="tonexty",
             fillcolor="rgba(32, 160, 78, 0.35)", stackgroup="xp",
         ))
-        fig_xp.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
+        fig_xp.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo, type="category")
         fig_xp.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="XP acumulado")
         _layout_base(
-            fig_xp, height=360,
+            fig_xp, height=300,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig_xp, use_container_width=True)
@@ -188,9 +188,9 @@ with col_evol:
             marker=dict(size=8, color=VERDE_PRIMARIO, line=dict(color="white", width=1)),
             fill="tozeroy", fillcolor="rgba(0, 106, 32, 0.15)",
         ))
-        fig_evol.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
+        fig_evol.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo, type="category")
         fig_evol.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Dificultad promedio")
-        _layout_base(fig_evol, height=360)
+        _layout_base(fig_evol, height=300)
         st.plotly_chart(fig_evol, use_container_width=True)
     else:
         st.info("Completa rutinas para ver aquí cómo va subiendo tu dificultad.")
@@ -209,7 +209,7 @@ with col_muscular:
         fig = grafico_radar(
             list(balance_muscular.keys()), list(balance_muscular.values()),
             color_linea=VERDE_PRIMARIO, color_relleno="rgba(0, 106, 32, 0.35)",
-            titulo="💪 Balance muscular", altura=620,
+            titulo="💪 Balance muscular", altura=480,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -226,7 +226,7 @@ with col_derecha:
         fig = grafico_radar(
             categorias, list(distribucion_objetivos.values()),
             color_linea=VERDE_MEDIO, color_relleno="rgba(32, 160, 78, 0.35)",
-            titulo="🎯 Tipos de rutina", altura=290,
+            titulo="🎯 Tipos de rutina", altura=240,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -237,7 +237,7 @@ with col_derecha:
         fig = grafico_radar(
             list(balance_nutricional.keys()), list(balance_nutricional.values()),
             color_linea=VERDE_SUAVE, color_relleno="rgba(142, 200, 153, 0.45)",
-            titulo="🥗 Balance nutricional (%)", valor_max=150, altura=290,
+            titulo="🥗 Balance nutricional (%)", valor_max=150, altura=240,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -257,9 +257,9 @@ if not minutos_periodo.empty:
         marker=dict(color=VERDE_PRIMARIO, line=dict(color=VERDE_MEDIO, width=1)),
         text=minutos_periodo["minutos"].round().astype(int), textposition="outside",
     ))
-    fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo)
+    fig_minutos.update_xaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title=etiqueta_periodo, type="category")
     fig_minutos.update_yaxes(gridcolor=GRIS_VERDE, linecolor=GRIS_VERDE, title="Minutos entrenados")
-    _layout_base(fig_minutos, height=320, showlegend=False)
+    _layout_base(fig_minutos, height=260, showlegend=False)
     st.plotly_chart(fig_minutos, use_container_width=True)
 else:
     st.info(f"Completa rutinas para ver aquí cuántos minutos entrenas por {etiqueta_periodo.lower()}.")
