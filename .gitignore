@@ -222,6 +222,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# ASCEND
-ascend.db

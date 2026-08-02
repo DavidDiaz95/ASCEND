@@ -217,6 +217,11 @@ SERIES_POR_OBJETIVO = {
     "Mejorar resistencia/cardio": (2, 3), "Salud general": (3, 3),
 }
 
+DURACION_SEG_POR_OBJETIVO = {
+    "Bajar de peso": (30, 60), "Ganar músculo": (20, 30), "Ganar fuerza": (20, 30),
+    "Mejorar resistencia/cardio": (45, 90), "Salud general": (30, 45),
+}
+
 
 def _obtener_dificultad_continua(df: pd.DataFrame) -> pd.Series:
     """
@@ -389,7 +394,7 @@ def _generar_variante(
     objetivo: str,
     nivel_cluster_nombre: str | None,
     historial: list[dict] | None = None,
-    n_ejercicios: int = 8,
+    n_ejercicios: int = 6,
     desplazamiento_dificultad: float = 0.0,
     peso_balance: float = PESO_BALANCE_ZONAS_DEFAULT,
     frecuencia_zonas: dict | None = None,
@@ -472,17 +477,20 @@ def _generar_variante(
 
     reps_range = REPS_RANGE_POR_OBJETIVO.get(objetivo, (10, 15))
     series_range = SERIES_POR_OBJETIVO.get(objetivo, (3, 3))
+    duracion_range = DURACION_SEG_POR_OBJETIVO.get(objetivo, (30, 45))
     rng = np.random.default_rng()
 
     ejercicios_final = []
     for ex in seleccionados:
+        es_tiempo = ex["zona_muscular"] == "Cardio"
+        valor = int(rng.integers(duracion_range[0], duracion_range[1] + 1)) if es_tiempo else int(rng.integers(reps_range[0], reps_range[1] + 1))
         ejercicios_final.append({
             "id": ex["id"], "nombre": formatear_nombre_ejercicio(ex["name"]), "zona_muscular": ex["zona_muscular"],
             "equipment": ex["equipment"],
             "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
             "series": int(rng.integers(series_range[0], series_range[1] + 1)),
-            "reps": int(rng.integers(reps_range[0], reps_range[1] + 1)),
+            "reps": valor, "es_tiempo": es_tiempo,
             "gif_path": str(ruta_gif(pd.Series(ex))),
             "similitud": round(float(ex["similitud"]), 3),
         })
@@ -517,7 +525,7 @@ def generar_rutina(
     objetivo: str,
     nivel_cluster_nombre: str | None,
     historial: list[dict] | None = None,
-    n_ejercicios: int = 8,
+    n_ejercicios: int = 6,
 ) -> dict:
     """Compatibilidad hacia atrás: una sola rutina 'recomendada', sin
     variantes ni balance de zonas explícito (usa el default). Para el menú
@@ -586,7 +594,7 @@ def generar_menu_rutinas(
     nivel_cluster_nombre: str | None,
     historial: list[dict] | None = None,
     frecuencia_zonas: dict | None = None,
-    n_ejercicios: int = 8,
+    n_ejercicios: int = 6,
 ) -> list[dict]:
     """
     Genera varias rutinas candidatas de una vez (toda una escalera de
@@ -653,7 +661,7 @@ def generar_rutina_por_grupo(
     zona: str,
     nivel_cluster_nombre: str | None,
     historial: list[dict] | None = None,
-    n_ejercicios: int = 6,
+    n_ejercicios: int = 5,
 ) -> dict:
     """Una rutina enfocada 100% en una sola zona muscular — un 'día' de
     split, en vez de cuerpo completo."""
@@ -669,7 +677,7 @@ def generar_menu_por_grupos(
     equipo_disponible: list[str],
     nivel_cluster_nombre: str | None,
     historial: list[dict] | None = None,
-    n_ejercicios: int = 6,
+    n_ejercicios: int = 5,
 ) -> list[dict]:
     """Una rutina por cada grupo muscular disponible con tu equipo actual —
     para armar tu propio split (ej. empuje lunes, tracción miércoles,
@@ -682,41 +690,58 @@ def generar_menu_por_grupos(
     return rutinas
 
 
+ZONAS_TREN_SUPERIOR = {"Empuje superior", "Tracción superior", "Accesorio (antebrazo)", "Accesorio (cuello)"}
+ZONAS_TREN_INFERIOR = {"Tren inferior", "Core", "Cardio"}
+
+
 def generar_calentamiento(
-    equipo_disponible: list[str], zonas_objetivo: list[str], n_ejercicios: int = 5,
-    tope_dificultad_calentamiento: float = 30.0,
+    equipo_disponible: list[str], zonas_objetivo: list[str], n_ejercicios: int = 6,
 ) -> list[dict]:
     """
-    Ejercicios GENUINAMENTE ligeros (score_llm bajo) de las mismas zonas
-    que trabajará la rutina principal, para precalentar antes de exigir
-    de verdad.
+    Estiramientos REALES del catálogo (nombre contiene "stretch"), no
+    ejercicios de fuerza con dificultad baja — así el calentamiento no le
+    quita resistencia al usuario antes del ejercicio principal. Se adapta
+    a si la rutina es de tren superior, tren inferior, o cuerpo completo
+    (unión de ambos).
     """
     df = cargar_catalogo().copy()
     df["dificultad_continua"] = _obtener_dificultad_continua(df)
+    stretches = df[df["name"].str.contains("stretch", case=False, na=False)]
 
-    candidatos = df[
-        df["equipment"].isin(equipo_disponible)
-        & df["zona_muscular"].isin(zonas_objetivo)
-        & (df["dificultad_continua"] <= tope_dificultad_calentamiento)
-    ]
-    if candidatos.empty:
-        candidatos = df[
-            df["equipment"].isin(equipo_disponible)
-            & (df["dificultad_continua"] <= tope_dificultad_calentamiento)
-        ]
-    if candidatos.empty:
-        return []
+    zonas_objetivo = set(zonas_objetivo)
+    es_superior = bool(zonas_objetivo & ZONAS_TREN_SUPERIOR)
+    es_inferior = bool(zonas_objetivo & ZONAS_TREN_INFERIOR)
+    if not es_superior and not es_inferior:
+        es_superior = es_inferior = True
 
-    muestra = candidatos.sample(n=min(n_ejercicios, len(candidatos)))
+    def _muestrear(zonas: set, n: int) -> pd.DataFrame:
+        candidatos = stretches[stretches["equipment"].isin(equipo_disponible) & stretches["zona_muscular"].isin(zonas)]
+        if candidatos.empty:
+            candidatos = stretches[stretches["zona_muscular"].isin(zonas)]
+        if candidatos.empty:
+            return candidatos
+        return candidatos.sample(n=min(n, len(candidatos)))
+
+    if es_superior and es_inferior:
+        mitad = n_ejercicios // 2
+        seleccion = pd.concat([
+            _muestrear(ZONAS_TREN_SUPERIOR, mitad),
+            _muestrear(ZONAS_TREN_INFERIOR, n_ejercicios - mitad),
+        ])
+    elif es_superior:
+        seleccion = _muestrear(ZONAS_TREN_SUPERIOR, n_ejercicios)
+    else:
+        seleccion = _muestrear(ZONAS_TREN_INFERIOR, n_ejercicios)
+
     calentamiento = []
-    for _, ex in muestra.iterrows():
+    for _, ex in seleccion.iterrows():
         calentamiento.append({
             "id": ex["id"], "nombre": formatear_nombre_ejercicio(ex["name"]), "zona_muscular": ex["zona_muscular"],
             "equipment": ex["equipment"],
             "score_llm": ex["score_llm"], "nivel": clasificar_tier(ex["score_llm"]),
             "n_secondary": ex.get("n_secondary"), "dificultad_continua": round(float(ex["dificultad_continua"]), 1),
-            "series": 2,
-            "reps": 12, "gif_path": str(ruta_gif(ex)),
+            "series": 1,
+            "reps": 25, "es_tiempo": True, "gif_path": str(ruta_gif(ex)),
         })
     return calentamiento
 

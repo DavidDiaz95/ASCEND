@@ -6,9 +6,15 @@ import streamlit as st
 from openai import OpenAI
 
 from prompts import construir_system_prompt
-from utils_db import obtener_perfil, obtener_xp_total, obtener_equipo_usuario, obtener_historial_rutinas
+from utils_db import (
+    obtener_perfil, obtener_xp_total, obtener_equipo_usuario, obtener_historial_rutinas,
+    obtener_historial_nutricion,
+)
 from utils_nutricion import calcular_objetivo_nutricional
-from utils_dashboard import calcular_racha_actual, obtener_ejercicio_favorito
+from utils_dashboard import (
+    calcular_racha_actual, obtener_ejercicio_favorito, calcular_kpis,
+    calcular_balance_muscular, calcular_distribucion_objetivos, calcular_balance_nutricional,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUTA_LOGOS = BASE_DIR / "Logos"
@@ -37,21 +43,40 @@ model_openai = "gpt-5.4-mini"
 usuario_id = st.session_state["usuario_id"]
 perfil_usuario = obtener_perfil(usuario_id) or {}
 historial_rutinas_usuario = obtener_historial_rutinas(usuario_id, limite=1000)
-historial_nutricion_usuario = []  # se completa si en el futuro se necesita aquí también
+historial_nutricion_usuario = obtener_historial_nutricion(usuario_id, limite=1000)
 
 favorito = obtener_ejercicio_favorito(historial_rutinas_usuario)
-meta_nutricional = calcular_objetivo_nutricional(perfil_usuario) if perfil_usuario else None
+racha_actual = calcular_racha_actual(historial_rutinas_usuario, historial_nutricion_usuario)
+meta_nutricional = calcular_objetivo_nutricional(perfil_usuario, historial_rutinas_usuario) if perfil_usuario else None
 
 SYSTEM_PROMPT = construir_system_prompt(
     nombre_usuario=st.session_state.get("username"),
     objetivo=perfil_usuario.get("objetivo"),
     xp_total=obtener_xp_total(usuario_id),
     equipo_disponible=obtener_equipo_usuario(usuario_id),
-    racha_actual=calcular_racha_actual(historial_rutinas_usuario, historial_nutricion_usuario),
+    racha_actual=racha_actual,
     n_rutinas_completadas=len(historial_rutinas_usuario),
     ejercicio_favorito=favorito["nombre"] if favorito else None,
     meta_nutricional=meta_nutricional,
 )
+
+# Contexto adicional: todo lo que ya se calcula para el Dashboard, para que
+# el asistente vea lo mismo que el usuario ve en Mi Progreso.
+kpis = calcular_kpis(historial_rutinas_usuario, historial_nutricion_usuario, racha_actual)
+balance_muscular = calcular_balance_muscular(historial_rutinas_usuario)
+distribucion_objetivos = calcular_distribucion_objetivos(historial_rutinas_usuario)
+balance_nutricional = calcular_balance_nutricional(historial_nutricion_usuario, perfil_usuario, historial_rutinas_usuario)
+
+CONTEXTO_ADICIONAL = f"""
+👤 **Más contexto del usuario (histórico completo)**
+- Comidas registradas: {kpis['n_comidas']}
+- Minutos entrenados (histórico): {kpis['minutos_totales']}
+- Dificultad promedio de sus rutinas: {kpis['dificultad_promedio']}
+- Balance muscular (conteo de ejercicios por zona): {balance_muscular}
+- Objetivos entrenados con más frecuencia: {distribucion_objetivos}
+- Balance nutricional (% de su meta por comida): {balance_nutricional}
+"""
+SYSTEM_PROMPT += CONTEXTO_ADICIONAL
 
 col_izq, col_centro, col_der = st.columns([1, 2, 1])
 with col_centro:

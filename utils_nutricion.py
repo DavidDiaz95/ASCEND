@@ -22,6 +22,7 @@ esa comida. Buscar opciones no cuesta XP; confirmarla sí.
 import base64
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -303,8 +304,31 @@ def buscar_opciones_comida(ingredientes: list[str], n_opciones: int = 3) -> list
 # PANEL DE METAS DIARIAS — Mifflin-St Jeor (BMR) + factor de actividad +
 # ajuste según objetivo. Es una ESTIMACIÓN general, no un plan clínico
 # ---------------------------------------------------------------------------
-FACTOR_ACTIVIDAD_ASUMIDO = 1.45  # "moderadamente activo" — asunción documentada,
-# ya que hoy no medimos frecuencia real de entrenamiento por semana
+FACTOR_ACTIVIDAD_BAJO = 1.2
+FACTOR_ACTIVIDAD_MODERADO = 1.45
+FACTOR_ACTIVIDAD_ALTO = 1.725
+NOMBRE_FACTOR_ACTIVIDAD = {
+    FACTOR_ACTIVIDAD_BAJO: "baja", FACTOR_ACTIVIDAD_MODERADO: "moderada", FACTOR_ACTIVIDAD_ALTO: "alta",
+}
+
+
+def _determinar_factor_actividad(historial_rutinas: list[dict] | None) -> float:
+    """Puente rutinas -> dieta: sin datos de calorías por ejercicio, se usa
+    la cantidad de rutinas completadas hoy/ayer (en UTC, mismo criterio que
+    SQLite) como proxy de actividad física real."""
+    if not historial_rutinas:
+        return FACTOR_ACTIVIDAD_BAJO
+    hoy = datetime.now(timezone.utc).date()
+    ayer = hoy - timedelta(days=1)
+    contador = sum(
+        1 for h in historial_rutinas
+        if datetime.strptime(h["completado_en"][:19], "%Y-%m-%d %H:%M:%S").date() in (hoy, ayer)
+    )
+    if contador > 2:
+        return FACTOR_ACTIVIDAD_ALTO
+    if contador >= 1:
+        return FACTOR_ACTIVIDAD_MODERADO
+    return FACTOR_ACTIVIDAD_BAJO
 
 AJUSTE_CALORICO_POR_OBJETIVO = {
     "Bajar de peso": -500, "Ganar músculo": +300, "Ganar fuerza": +200,
@@ -319,11 +343,12 @@ PROTEINA_G_POR_KG_POR_OBJETIVO = {
 PISO_CALORICO_SEGURIDAD = 1200  # nunca recomendar menos que esto, no es saludable
 
 
-def calcular_objetivo_nutricional(perfil: dict) -> dict:
+def calcular_objetivo_nutricional(perfil: dict, historial_rutinas: list[dict] | None = None) -> dict:
     """
     A partir del perfil físico (peso, estatura, edad, sexo) y el objetivo
     declarado, calcula: calorías objetivo, proteína, grasa y carbohidratos
-    en gramos. Usa Mifflin-St Jeor para el metabolismo basal.
+    en gramos. Usa Mifflin-St Jeor para el metabolismo basal, con el factor
+    de actividad determinado por las rutinas completadas hoy/ayer.
     """
     peso = perfil["weight_kg"]
     altura = perfil["height_cm"]
@@ -336,7 +361,8 @@ def calcular_objetivo_nutricional(perfil: dict) -> dict:
     else:
         bmr = 10 * peso + 6.25 * altura - 5 * edad - 161
 
-    tdee = bmr * FACTOR_ACTIVIDAD_ASUMIDO
+    factor_actividad = _determinar_factor_actividad(historial_rutinas)
+    tdee = bmr * factor_actividad
     calorias_objetivo = max(tdee + AJUSTE_CALORICO_POR_OBJETIVO.get(objetivo, 0), PISO_CALORICO_SEGURIDAD)
 
     proteina_g = round(peso * PROTEINA_G_POR_KG_POR_OBJETIVO.get(objetivo, 1.6))
@@ -348,6 +374,7 @@ def calcular_objetivo_nutricional(perfil: dict) -> dict:
 
     return {
         "calorias": round(calorias_objetivo), "proteina_g": proteina_g,
+        "factor_actividad": factor_actividad, "nombre_actividad": NOMBRE_FACTOR_ACTIVIDAD[factor_actividad],
         "grasa_g": grasa_g, "carbohidratos_g": carbohidratos_g,
         "bmr": round(bmr), "tdee": round(tdee), "objetivo_usado": objetivo,
     }

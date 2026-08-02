@@ -18,8 +18,8 @@ st.markdown(
 st.markdown(
     """
     <p style='text-align: center; color: #3a3a3a; font-size: 16px;'>
-    Evaluamos tu condición física real con pruebas concretas, no con suposiciones. A partir de ahí, tus rutinas y
-     tu alimentación se ajustan contigo — cada vez que avanzas, cada vez que cambian tus metas.
+    Evaluamos tu condición física real con pruebas concretas. Tus rutinas y
+     tu alimentación se ajustan contigo, cada vez que cambian tus metas.
     </p>
     """,
     unsafe_allow_html=True,

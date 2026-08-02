@@ -106,9 +106,11 @@ def descanso_html(duracion_seg: int = 60) -> str:
 
 def iniciar_ejecucion(rutina: dict, equipo_activo: list[str]) -> None:
     calentamiento = generar_calentamiento(equipo_activo, list(rutina["zonas_contadas"].keys()))
+    ids_calentamiento = {ex["id"] for ex in calentamiento}
+    principales = [ex for ex in rutina["ejercicios"] if ex["id"] not in ids_calentamiento]
     secuencia = (
         [{"tipo": "calentamiento", **ex} for ex in calentamiento]
-        + [{"tipo": "principal", **ex} for ex in rutina["ejercicios"]]
+        + [{"tipo": "principal", **ex} for ex in principales]
     )
     st.session_state["ejecucion"] = {
         "rutina_id": rutina["rutina_id"],
@@ -122,6 +124,28 @@ def iniciar_ejecucion(rutina: dict, equipo_activo: list[str]) -> None:
         "hora_inicio": time.time(),
     }
     st.rerun()
+
+
+def avanzar_serie_o_ejercicio() -> None:
+    """Avanza la serie actual (1/3 -> 2/3 -> 3/3); solo al completar todas
+    las series de un ejercicio pasa al siguiente (o a feedback si era el
+    último)."""
+    ejecucion = st.session_state["ejecucion"]
+    series_totales = ejecucion["secuencia"][ejecucion["indice"]].get("series", 1)
+    if ejecucion["serie_actual"] < series_totales:
+        ejecucion["serie_actual"] += 1
+        ejecucion["fase"] = "ejercicio"
+    else:
+        avanzar_a_siguiente_ejercicio()
+
+
+def retroceder_ejercicio() -> None:
+    """Regresa al ejercicio anterior, por si se avanzó por error."""
+    ejecucion = st.session_state["ejecucion"]
+    if ejecucion["indice"] > 0:
+        ejecucion["indice"] -= 1
+        ejecucion["serie_actual"] = 1
+        ejecucion["fase"] = "ejercicio"
 
 
 def avanzar_a_siguiente_ejercicio() -> None:
@@ -212,35 +236,39 @@ if st.session_state.get("ejecucion"):
             st.caption("📹 GIF pendiente")
     with col_info:
         st.markdown(f"### {ejercicio_actual['nombre']}")
-        st.write(f"**Serie {serie_actual} de {series_totales} · {ejercicio_actual['reps']} repeticiones**")
+        unidad = "segundos" if ejercicio_actual.get("es_tiempo") else "repeticiones"
+        st.write(f"**Serie {serie_actual} de {series_totales} · {ejercicio_actual['reps']} {unidad}**")
         st.caption(f"{ejercicio_actual['zona_muscular']} · {ejercicio_actual['equipment']}")
         st.caption(formatear_features_ejercicio(ejercicio_actual))
 
     st.divider()
 
     if fase == "ejercicio":
-        col1, col2, col3 = st.columns(3)
+        col0, col1, col2 = st.columns(3)
+        with col0:
+            if st.button("⬅️ Regresar", use_container_width=True, disabled=(indice == 0)):
+                retroceder_ejercicio()
+                st.rerun()
         with col1:
             if st.button("😌 Descansar 60s", use_container_width=True):
                 st.session_state["ejecucion"]["fase"] = "descanso"
                 st.rerun()
         with col2:
-            if st.button("⏭️ Siguiente", use_container_width=True):
-                avanzar_a_siguiente_ejercicio()
-                st.rerun()
-        with col3:
-            if st.button(f"✅ Serie {serie_actual}/{series_totales}", use_container_width=True, type="primary"):
-                if serie_actual >= series_totales:
-                    avanzar_a_siguiente_ejercicio()
-                else:
-                    st.session_state["ejecucion"]["serie_actual"] += 1
+            if st.button(f"✅ Serie {serie_actual}/{series_totales} — Siguiente", use_container_width=True, type="primary"):
+                avanzar_serie_o_ejercicio()
                 st.rerun()
 
     elif fase == "descanso":
         components.html(descanso_html(60), height=110)
-        if st.button("▶️ Ya descansé, continuar", type="primary", use_container_width=True):
-            st.session_state["ejecucion"]["fase"] = "ejercicio"
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Regresar", use_container_width=True, disabled=(indice == 0)):
+                retroceder_ejercicio()
+                st.rerun()
+        with col2:
+            if st.button("▶️ Ya descansé, continuar", type="primary", use_container_width=True):
+                avanzar_serie_o_ejercicio()
+                st.rerun()
 
     st.divider()
     if st.button("❌ Cancelar rutina (no se guarda)"):
@@ -326,7 +354,7 @@ if st.session_state.get("menu_rutinas_clave") != clave_menu_actual:
 
     st.session_state["menu_rutinas"] = generar_menu_rutinas(
         equipo_activo, objetivo_seleccionado, nivel_cluster_nombre,
-        historial=historial, frecuencia_zonas=frecuencia_zonas, n_ejercicios=8,
+        historial=historial, frecuencia_zonas=frecuencia_zonas, n_ejercicios=6,
     )
     st.session_state["menu_rutinas_clave"] = clave_menu_actual
 
@@ -451,6 +479,8 @@ for slot, tab in zip(range(1, MAX_RUTINAS_PERSONALIZADAS + 1), tabs_slots):
 
                 zonas_de_la_rutina = list({ex["zona_muscular"] for ex in principales})
                 calentamiento = generar_calentamiento(equipo_activo, zonas_de_la_rutina)
+                ids_calentamiento = {ex["id"] for ex in calentamiento}
+                principales = [ex for ex in principales if ex["id"] not in ids_calentamiento]
                 dificultad_promedio = (
                     sum(ex["dificultad_continua"] for ex in principales) / len(principales) if principales else 0.0
                 )

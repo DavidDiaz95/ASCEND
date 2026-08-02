@@ -107,7 +107,9 @@ def calcular_distribucion_objetivos(historial_rutinas: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # 4. BALANCE NUTRICIONAL — promedio por comida vs. meta por comida (%)
 # ---------------------------------------------------------------------------
-def calcular_balance_nutricional(historial_nutricion: list[dict], perfil: dict | None) -> dict | None:
+def calcular_balance_nutricional(
+    historial_nutricion: list[dict], perfil: dict | None, historial_rutinas: list[dict] | None = None,
+) -> dict | None:
     """Regresa, para calorías/proteína/grasa/carbohidratos, qué porcentaje
     representa el promedio real por comida contra la meta por comida
     (dividiendo la meta diaria entre 3). 100% = comiendo justo la meta."""
@@ -122,7 +124,7 @@ def calcular_balance_nutricional(historial_nutricion: list[dict], perfil: dict |
     if not calorias:
         return None
 
-    metas = calcular_objetivo_nutricional(perfil)
+    metas = calcular_objetivo_nutricional(perfil, historial_rutinas)
     meta_por_comida = {
         "Calorías": metas["calorias"] / 3, "Proteína": metas["proteina_g"] / 3,
         "Grasa": metas["grasa_g"] / 3, "Carbohidratos": metas["carbohidratos_g"] / 3,

@@ -2,7 +2,7 @@ import streamlit as st
 
 from utils_db import (
     obtener_xp_total, registrar_interaccion_nutricion, obtener_historial_nutricion,
-    obtener_perfil, obtener_comidas_de_hoy,
+    obtener_perfil, obtener_comidas_de_hoy, obtener_historial_rutinas,
 )
 from utils_nutricion import (
     identificar_ingredientes_de_foto, traducir_ingredientes_a_ingles, traducir_ingredientes_a_espanol,
@@ -176,14 +176,16 @@ if not perfil:
     st.warning("Completa tus datos en **Mi Perfil** para calcular tu meta diaria personalizada.")
     metas = None
 else:
-    metas = calcular_objetivo_nutricional(perfil)
+    historial_rutinas_usuario = obtener_historial_rutinas(usuario_id, limite=1000)
+    metas = calcular_objetivo_nutricional(perfil, historial_rutinas_usuario)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Calorías/día", metas["calorias"])
     col2.metric("Proteína", f"{metas['proteina_g']} g")
     col3.metric("Grasa", f"{metas['grasa_g']} g")
     col4.metric("Carbohidratos", f"{metas['carbohidratos_g']} g")
     st.caption(
-        f"Estimado para tu objetivo actual (**{metas['objetivo_usado']}**) con Mifflin-St Jeor y factor de actividad moderado."
+        f"Estimado para tu objetivo actual (**{metas['objetivo_usado']}**) con Mifflin-St Jeor "
+        f"y actividad física **{metas['nombre_actividad']}** (según tus rutinas de hoy/ayer)."
     )
 
     comidas_hoy = obtener_comidas_de_hoy(usuario_id)
